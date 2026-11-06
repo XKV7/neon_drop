@@ -146,7 +146,7 @@ export function propMaterial(base: THREE.ColorRepresentation, opts: { stripes?: 
 /** 건물: 절차적 창문 + 네온 테두리 */
 export function buildingMaterial() {
   return new THREE.ShaderMaterial({
-    uniforms: { uLightDir: G.uLightDir, uTime: G.uTime, uVisTex: G.uVisTex, uVisOn: G.uVisOn },
+    uniforms: { uLightDir: G.uLightDir, uTime: G.uTime, uVisTex: G.uVisTex, uVisOn: G.uVisOn, uAlpha: { value: 1 } },
     vertexShader: /* glsl */ `
       attribute vec3 aNeon; attribute float aSeed; attribute vec3 aSize;
       varying vec3 vWorld; varying vec3 vNeon; varying float vSeed; varying vec3 vLocal; varying vec3 vSize;
@@ -156,7 +156,7 @@ export function buildingMaterial() {
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uLightDir; uniform float uTime;
+      uniform vec3 uLightDir; uniform float uTime; uniform float uAlpha;
       varying vec3 vWorld; varying vec3 vNeon; varying float vSeed; varying vec3 vLocal; varying vec3 vSize;
       ${VIS_FN}
       float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)) + vSeed * 17.0) * 43758.5453); }
@@ -192,7 +192,7 @@ export function buildingMaterial() {
         float dist = length(vWorld.xz);
         col *= mix(0.5, 1.0, visAt(vWorld));
         col = mix(col, vec3(0.06, 0.02, 0.1), smoothstep(46.0, 75.0, dist) * 0.6);
-        gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4(col, uAlpha);
       }`,
   });
 }

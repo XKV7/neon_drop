@@ -17,6 +17,8 @@ export class MapView {
   private destroyed = new Set<number>();
   reflectables: THREE.Object3D[] = [];
   padMats: THREE.ShaderMaterial[] = [];
+  private overhead: THREE.Mesh[] = [];
+  private railZ = 0; private railHalfW = 0;
   map: MapData;
 
   constructor(map: MapData) {
@@ -147,13 +149,17 @@ export class MapView {
       g.setAttribute('aNeon', new THREE.BufferAttribute(new Float32Array(n * 3).map((_, i) => [0.13, 0.95, 1][i % 3]), 3));
       g.setAttribute('aSeed', new THREE.BufferAttribute(new Float32Array(n).fill(9), 1));
       g.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(n * 3).map((_, i) => [rail.s, rail.h + 0.7, 7.5][i % 3]), 3));
-      const deck = new THREE.Mesh(g, buildingMaterial());
+      const deckMat = buildingMaterial(); deckMat.transparent = true;
+      const deck = new THREE.Mesh(g, deckMat);
+      this.railZ = rail.y; this.railHalfW = rail.s / 2;
       this.group.add(deck);
       this.reflectables.push(deck);
+      this.overhead.push(deck);
       // 상판 아래 네온 띠
       for (const side of [-3.6, 3.6]) {
         const strip = new THREE.Mesh(new THREE.BoxGeometry(rail.s, 0.08, 0.12), glowMaterial(0x22f3ff, 3));
         strip.position.set(rail.x, rail.h - 0.38, rail.y + side);
+        (strip.material as THREE.ShaderMaterial).transparent = true; this.overhead.push(strip);
         this.group.add(strip); this.reflectables.push(strip);
       }
     }
@@ -327,6 +333,14 @@ export class MapView {
 
   /** 내 영웅이 들어간 홀로그램 구역은 투명하게 */
   updateBushFade(px: number, py: number) {
+    // 고가 철도 아래(또는 카메라 시선이 가리는 바로 앞)에서는 상판을 투명하게
+    const under = this.overhead.length > 0 && Math.abs(px) < this.railHalfW + 2 && py > this.railZ - 9 && py < this.railZ + 5;
+    for (const m of this.overhead) {
+      const u = (m.material as THREE.ShaderMaterial).uniforms;
+      const key = u.uAlpha ? 'uAlpha' : 'uOpacity';
+      if (!u[key]) continue;
+      u[key].value += ((under ? 0.18 : 1) - u[key].value) * 0.12;
+    }
     for (const b of this.bushHolos) {
       const inside = Math.abs(px - b.rect.x) <= b.rect.hw + 0.3 && Math.abs(py - b.rect.y) <= b.rect.hh + 0.3;
       const target = inside ? 0.35 : 1;

@@ -19,7 +19,7 @@ const dataDir = join(tmpdir(), 'neon-e2e-' + Date.now());
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const server = spawn(process.execPath, [join(root, 'server/dist/index.js')], {
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, NEON_XP_MULT: '6', NEON_TIME_SCALE: '6' }, stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, NEON_XP_MULT: '6', NEON_TIME_SCALE: '3' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', d => process.stderr.write('[서버] ' + d));
 await new Promise(r => server.stdout.on('data', d => { if (String(d).includes('서버 실행')) r(); }));
@@ -76,6 +76,39 @@ async function run(query, shots) {
   await B.waitForFunction(() => window.__neon.match.game.selfState === 2, null, { timeout: 20000 });
   console.log('착지 완료');
 
+  // 증강: 데이터 코어 줍기
+  const walkToCore = async page => {
+    for (let i = 0; i < 80; i++) {
+      const st = await page.evaluate(() => {
+        const g = window.__neon.match?.game; if (!g || !g.self) return null;
+        if (window.__neon.match.hud.offer) return { offer: true };
+        let best = null, bd = 1e9;
+        for (const v of g.view.values()) if (v.type === 7 && v.sub === 0) { const d = Math.hypot(v.x - g.self.x, v.y - g.self.y); if (d < bd) { bd = d; best = v; } }
+        return best ? { x: best.x - g.self.x, y: best.y - g.self.y, state: g.self.state } : { x: -g.self.x, y: -g.self.y, state: g.self.state };
+      });
+      if (!st || st.offer || st.state !== 2) { console.log('  코어 탐색 종료', JSON.stringify(st)); return !!st?.offer; }
+      const keys = [];
+      if (st.x > 0.4) keys.push('KeyD'); if (st.x < -0.4) keys.push('KeyA'); if (st.y > 0.4) keys.push('KeyS'); if (st.y < -0.4) keys.push('KeyW');
+      for (const k of keys) await page.keyboard.down(k);
+      await sleep(180);
+      for (const k of keys) await page.keyboard.up(k);
+    }
+    console.log('  코어 탐색 시간 초과');
+    return false;
+  };
+  const gotA = await walkToCore(A);
+  await walkToCore(B);
+  if (gotA) {
+    await A.waitForSelector('.aug-card', { timeout: 5000 });
+    if (shots) await A.screenshot({ path: join(shotsDir, '4-augment.jpg'), type: 'jpeg', quality: 82 });
+    await A.keyboard.press('Digit1');
+    await A.waitForFunction(() => window.__neon.match.augments.length > 0, null, { timeout: 5000 });
+    console.log('증강 선택 성공:', await A.evaluate(() => window.__neon.match.augments.join(',')));
+  } else errors.push('증강 선택 화면에 도달하지 못함');
+  // B는 마우스 클릭으로 선택
+  const bOffer = await B.evaluate(() => !!window.__neon.match?.hud.offer);
+  if (bOffer) { await B.click('.aug-card >> nth=1'); await sleep(500); }
+
   const snap = page => page.evaluate(() => {
     const g = window.__neon.match?.game; if (!g || !g.self) return null;
     const heroes = {}; for (const v of g.view.values()) if (v.type === 1) heroes[v.id] = [v.x, v.y];
@@ -127,40 +160,6 @@ async function run(query, shots) {
   if (shots) await A.screenshot({ path: join(shotsDir, '3-combat.jpg'), type: 'jpeg', quality: 82 });
   console.log(`위치 동기화: ${syncOk}/${syncChecks} 일치 (최대 오차 ${maxErr.toFixed(2)}m)`);
   if (syncChecks > 0 && syncOk < syncChecks) errors.push(`두 화면의 위치가 어긋남 (최대 ${maxErr.toFixed(2)}m)`);
-
-  // 증강: 데이터 코어 줍기
-  const walkToCore = async page => {
-    for (let i = 0; i < 80; i++) {
-      const st = await page.evaluate(() => {
-        const g = window.__neon.match?.game; if (!g || !g.self) return null;
-        if (window.__neon.match.hud.offer) return { offer: true };
-        let best = null, bd = 1e9;
-        for (const v of g.view.values()) if (v.type === 7 && v.sub === 0) { const d = Math.hypot(v.x - g.self.x, v.y - g.self.y); if (d < bd) { bd = d; best = v; } }
-        return best ? { x: best.x - g.self.x, y: best.y - g.self.y, state: g.self.state } : { x: -g.self.x, y: -g.self.y, state: g.self.state };
-      });
-      if (!st || st.offer || st.state !== 2) { console.log('  코어 탐색 종료', JSON.stringify(st)); return !!st?.offer; }
-      const keys = [];
-      if (st.x > 0.4) keys.push('KeyD'); if (st.x < -0.4) keys.push('KeyA'); if (st.y > 0.4) keys.push('KeyS'); if (st.y < -0.4) keys.push('KeyW');
-      for (const k of keys) await page.keyboard.down(k);
-      await sleep(180);
-      for (const k of keys) await page.keyboard.up(k);
-    }
-    console.log('  코어 탐색 시간 초과');
-    return false;
-  };
-  const gotA = await walkToCore(A);
-  await walkToCore(B);
-  if (gotA) {
-    console.log('  DOM 디버그', await A.evaluate(() => { const c = document.querySelector('.aug-card'); const r = c?.getBoundingClientRect(); return JSON.stringify({ n: document.querySelectorAll('.aug-card').length, r, cs: c && getComputedStyle(c).opacity, vis: c && getComputedStyle(c).visibility, disp: c && getComputedStyle(c.parentElement.parentElement).display, hud: !!document.querySelector('.hud') }); }));
-    await A.waitForSelector('.aug-card', { timeout: 5000 });
-    if (shots) await A.screenshot({ path: join(shotsDir, '4-augment.jpg'), type: 'jpeg', quality: 82 });
-    await A.keyboard.press('Digit1');
-    await A.waitForFunction(() => window.__neon.match.augments.length > 0, null, { timeout: 5000 });
-    console.log('증강 선택 성공:', await A.evaluate(() => window.__neon.match.augments.join(',')));
-  } else errors.push('증강 선택 화면에 도달하지 못함');
-  // B는 마우스 클릭으로 선택
-  const bOffer = await B.evaluate(() => !!window.__neon.match?.hud.offer);
-  if (bOffer) { await B.click('.aug-card >> nth=1'); await sleep(500); }
 
   // 판 종료까지 (가속된 구역)
   console.log('판 종료 대기…');

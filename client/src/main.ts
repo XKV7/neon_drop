@@ -269,9 +269,19 @@ class App {
     if (code === settings.keys.score) { if (!this.scoreHeld) { this.scoreHeld = true; m.hud.showScoreboard(true); } return true; }
     if (code === settings.keys.chat) { m.hud.openChat(); return true; }
     if (code === settings.keys.wheel && !e.repeat) { m.hud.toggleWheel(true); return true; }
-    if (code === 'Escape') { this.input.aiming = -1; return true; }
+    if (code === 'Escape') { if (this.input.aiming >= 0) this.input.aiming = -1; else this.toggleEscMenu(); return true; }
     if (m.hud.offer && (code === 'Digit1' || code === 'Digit2' || code === 'Digit3')) { m.transport.send({ type: 'pickAug', idx: Number(code.slice(5)) - 1 }); audio.play('ui'); return true; }
     return false;
+  }
+
+  private toggleEscMenu() {
+    const old = this.ui.querySelector('.overlay.esc');
+    if (old) { old.remove(); return; }
+    const local = !!this.match?.local;
+    const ov = el('div', 'overlay esc');
+    ov.innerHTML = `<div class="panel sub-panel" style="min-width:340px;text-align:center"><h2>일시 메뉴</h2><p class="dim" style="font-size:13px">${local ? '연습장은 언제든 나갈 수 있습니다.' : '게임은 계속 진행 중입니다. 나가면 캐릭터는 20초 뒤 탈락 처리됩니다.'}</p>
+      <div class="col"><button class="btn" data-act="esc-close">계속하기</button><button class="btn pink" data-act="leave-match">${local ? '연습장 나가기' : '판 나가기'}</button></div></div>`;
+    this.ui.appendChild(ov);
   }
 
   private onKeyUp(code: string) {
@@ -642,6 +652,7 @@ class App {
       case 'practice': this.startPractice(this.codexHero); break;
       case 'rematch': this.conn.send({ type: 'rematch' }); (actEl as HTMLButtonElement).disabled = true; (actEl as HTMLButtonElement).textContent = '재대결 대기 중…'; break;
       case 'leave-match': this.leaveMatch(); break;
+      case 'esc-close': this.ui.querySelector('.overlay.esc')?.remove(); break;
       case 'rename': { const n = (this.ui.querySelector('#newName') as HTMLInputElement).value.trim(); this.conn.send({ type: 'setName', name: n }); break; }
       case 'reset-keys': settings.keys = { ...DEFAULT_KEYS }; saveSettings(); this.render(); break;
     }
