@@ -50,6 +50,7 @@ export class MatchHost {
     this.match.setDisconnected(heroId, false);
     // 진행 중인 증강 선택 재전송
     const h = this.match.w.hero(heroId);
+    if (h && h.augments.length) sendJson({ type: 'augList', ids: [...h.augments] });
     if (h && h.pending.length) sendJson({ type: 'augOffer', options: h.pending[0].options, source: h.pending[0].source, deadline: h.pending[0].deadline, queue: h.pending.length });
     return c;
   }

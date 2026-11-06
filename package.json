@@ -12,7 +12,8 @@
     "typecheck": "tsc -p shared --noEmit && tsc -p server --noEmit && tsc -p client --noEmit",
     "test": "vitest run",
     "balance": "tsx scripts/balance.ts",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "docs": "tsx scripts/docs.ts --write"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

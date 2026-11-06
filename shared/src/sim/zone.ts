@@ -9,7 +9,7 @@ export const ZONE_RULES = {
   interval: 60, // 60초마다 축소
   warn: 20, // 다음 구역은 20초 전에 표시
   shrinkDur: 8,
-  radii: [MAP_RADIUS, 29, 20, 13, 7.5, 3.8],
+  radii: [MAP_RADIUS, 31, 23, 16, 10, 5],
   dps: [10, 15, 24, 34, 48, 64, 90],
   movingStart: 320, // 마지막 1분: 마지막 축소가 끝난 뒤 구역이 계속 움직인다
   movingEnd: 390,

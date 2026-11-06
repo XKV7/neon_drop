@@ -22,10 +22,10 @@ export function buildHero(heroIndex: number, palette = 0, skin = 0): HeroRig {
   const c1 = new THREE.Color(pal.c1), c2 = new THREE.Color(pal.c2);
   const mk = (color: THREE.ColorRepresentation, emissive?: THREE.ColorRepresentation, es = 1) => { const m = toonMaterial({ color, emissive, emissiveStrength: es, rim: pal.c1, shared: uniforms, transparent: true }); materials.push(m); return m; };
   const glow = (color: THREE.Color, s = 2.6) => { const m = glowMaterial(color, s, { shared: uniforms }); m.transparent = true; materials.push(m); return m; };
-  const bodyCol = new THREE.Color(pal.body).lerp(new THREE.Color(0x3a3a55), 0.35);
+  const bodyCol = new THREE.Color(pal.body).lerp(new THREE.Color(0x5a5a82), 0.45);
   const M = {
     body: mk(bodyCol), armor: mk(new THREE.Color(pal.body).multiplyScalar(0.6).add(new THREE.Color(0x111122))), dark: mk(0x14121e),
-    metal: mk(0x8a90a6), skin: mk(0xd9ab8e), n1: glow(c1), n2: glow(c2, 2.2), white: glow(new THREE.Color(0xffffff), 1.6),
+    metal: mk(0x8a90a6), skin: mk(0xd9ab8e), n1: glow(c1), n2: glow(c2, 2.2), white: mk(0xd8dcea), mask: glow(new THREE.Color(0xffffff), 0.9),
   };
   const g = () => new THREE.Group();
   const add = (parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
@@ -87,20 +87,20 @@ export function buildHero(heroIndex: number, palette = 0, skin = 0): HeroRig {
       break;
     }
     case 'biker': { // 레드라인: 체인소 팔
-      const saw = new THREE.Group(); saw.position.set(0, -0.15, 0.25); handR.add(saw);
-      add(saw, BOX(0.1, 0.16, 0.7), M.metal, 0, 0, 0.1);
-      add(saw, BOX(0.03, 0.2, 0.72), M.n1, 0, 0, 0.1);
-      const disc = add(saw, new THREE.CylinderGeometry(0.16, 0.16, 0.06, 8), M.n2, 0.07, 0, -0.15, 0, 0, Math.PI / 2);
+      const saw = new THREE.Group(); saw.position.set(0, -0.1, 0.05); handR.add(saw);
+      add(saw, BOX(0.1, 0.72, 0.16), M.metal, 0, -0.38, 0);
+      add(saw, BOX(0.03, 0.74, 0.2), M.n1, 0, -0.38, 0);
+      const disc = add(saw, new THREE.CylinderGeometry(0.16, 0.16, 0.06, 8), M.n2, 0.07, 0.02, 0, 0, 0, Math.PI / 2);
       spinners.push(disc);
       add(torso, BOX(0.55, 0.45, 0.06), M.dark, 0, 0.3, -0.17); // 재킷 등판
       add(torso, BOX(0.3, 0.3, 0.02), M.n2, 0, 0.32, -0.21);
       if (skin === 0) for (let i = 0; i < 5; i++) add(head, BOX(0.05, 0.14 - Math.abs(i - 2) * 0.02, 0.05), M.n1, 0, 0.36, -0.1 + i * 0.06);
       else if (skin === 1) { add(head, new THREE.SphereGeometry(0.2, 8, 6), M.armor, 0, 0.17, 0); add(head, BOX(0.3, 0.09, 0.05), M.n2, 0, 0.17, 0.17); }
-      else { add(head, BOX(0.3, 0.3, 0.3), M.white, 0, 0.16, 0.01); add(head, BOX(0.06, 0.06, 0.02), M.dark, -0.06, 0.2, 0.16); add(head, BOX(0.06, 0.06, 0.02), M.dark, 0.06, 0.2, 0.16); add(head, new THREE.ConeGeometry(0.05, 0.22, 4), M.n1, 0.14, 0.38, 0, 0, 0, -0.5); add(head, new THREE.ConeGeometry(0.05, 0.22, 4), M.n1, -0.14, 0.38, 0, 0, 0, 0.5); }
+      else { add(head, BOX(0.3, 0.3, 0.3), M.mask, 0, 0.16, 0.01); add(head, BOX(0.06, 0.06, 0.02), M.dark, -0.06, 0.2, 0.16); add(head, BOX(0.06, 0.06, 0.02), M.dark, 0.06, 0.2, 0.16); add(head, new THREE.ConeGeometry(0.05, 0.22, 4), M.n1, 0.14, 0.38, 0, 0, 0, -0.5); add(head, new THREE.ConeGeometry(0.05, 0.22, 4), M.n1, -0.14, 0.38, 0, 0, 0, 0.5); }
       break;
     }
     case 'ninja': { // 미라주: 쌍검, 스카프
-      for (const hand of [handL, handR]) { add(hand, BOX(0.03, 0.06, 0.75), M.n1, 0, -0.06, 0.35); add(hand, BOX(0.08, 0.08, 0.08), M.metal, 0, -0.06, 0); }
+      for (const hand of [handL, handR]) { add(hand, BOX(0.03, 0.75, 0.06), M.n1, 0, -0.45, 0.04); add(hand, BOX(0.1, 0.06, 0.1), M.metal, 0, -0.08, 0); }
       scarf = add(torso, BOX(0.12, 0.04, 0.7), M.n2, 0.08, 0.5, -0.4, -0.3);
       add(head, BOX(0.29, 0.29, 0.29), M.dark, 0, 0.15, -0.01);
       add(head, BOX(0.3, 0.04, 0.05), M.n1, 0, 0.18, 0.14);
@@ -126,10 +126,10 @@ export function buildHero(heroIndex: number, palette = 0, skin = 0): HeroRig {
       break;
     }
     case 'sniper': { // 레일: 긴 레일건, 코트
-      const gun = new THREE.Group(); gun.position.set(0, -0.08, 0.1); handR.add(gun);
-      add(gun, BOX(0.08, 0.12, 1.25), M.metal, 0, 0, 0.45);
-      add(gun, BOX(0.03, 0.03, 1.3), M.n1, 0, 0.07, 0.45);
-      add(gun, new THREE.CylinderGeometry(0.05, 0.05, 0.26, 6), M.dark, 0, 0.13, 0.25, Math.PI / 2);
+      const gun = new THREE.Group(); gun.position.set(0, -0.08, 0.06); handR.add(gun);
+      add(gun, BOX(0.08, 1.25, 0.12), M.metal, 0, -0.45, 0);
+      add(gun, BOX(0.03, 1.3, 0.03), M.n1, 0, -0.45, 0.07);
+      add(gun, new THREE.CylinderGeometry(0.05, 0.05, 0.26, 6), M.dark, 0, -0.25, 0.13);
       add(hips, new THREE.CylinderGeometry(0.24, 0.36, 0.7, 6, 1, true), M.body, 0, -0.32, 0);
       if (skin === 1) add(head, new THREE.ConeGeometry(0.24, 0.42, 6), M.body, 0, 0.32, -0.04);
       else if (skin === 2) { add(torso, BOX(0.2, 0.2, 0.7), M.metal, -0.36, 0.55, 0); add(torso, BOX(0.06, 0.06, 0.72), M.n2, -0.36, 0.67, 0); }
@@ -140,7 +140,7 @@ export function buildHero(heroIndex: number, palette = 0, skin = 0): HeroRig {
       add(torso, BOX(0.42, 0.42, 0.22), M.armor, 0, 0.32, -0.25);
       add(torso, new THREE.CylinderGeometry(0.015, 0.015, 0.5, 4), M.n1, 0.15, 0.7, -0.28);
       add(torso, new THREE.CylinderGeometry(0.015, 0.015, 0.35, 4), M.n2, -0.12, 0.62, -0.28);
-      add(handR, BOX(0.08, 0.14, 0.3), M.metal, 0, -0.08, 0.12);
+      add(handR, BOX(0.08, 0.32, 0.14), M.metal, 0, -0.18, 0.02); add(handR, BOX(0.03, 0.3, 0.03), M.n2, 0, -0.18, 0.09);
       const drone = new THREE.Group(); root.add(drone);
       add(drone, new THREE.OctahedronGeometry(0.15, 0), M.metal);
       add(drone, new THREE.TorusGeometry(0.2, 0.02, 4, 12), M.n1, 0, 0, 0, Math.PI / 2);
@@ -156,7 +156,7 @@ export function buildHero(heroIndex: number, palette = 0, skin = 0): HeroRig {
       add(head, BOX(0.16, 0.03, 0.02), M.n1, 0, 0.13, 0.155);
       for (let i = 0; i < 3; i++) {
         const sc = new THREE.Group(); root.add(sc);
-        add(sc, BOX(0.36, 0.22, 0.01), M.n2, 0, 0, 0);
+        add(sc, BOX(0.36, 0.22, 0.01), glow(c2, 1.2), 0, 0, 0);
         sc.userData.phase = (i / 3) * Math.PI * 2;
         orbit.push(sc);
       }

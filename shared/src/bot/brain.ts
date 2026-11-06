@@ -177,14 +177,14 @@ export class BotBrain {
       for (const e of near) theirPow += (e.hp + e.shield) * (1 + 0.12 * e.level);
       const noise = (1 - this.p.judge) * this.rng.range(-0.6, 0.6);
       const ratio = myPow / Math.max(1, theirPow) + noise;
-      const early = v.matchTime() < 130;
+      const early = v.matchTime() < 200;
       if ((hpR < (early ? 0.5 : 0.38) && ratio < 1.2) || (ratio < 0.6 && near.length > 0)) flee = true;
       // 교전 판단: 초반엔 파밍 위주, 시간이 갈수록 공격적
       const td = dist(h.m.x, h.m.y, target.m.x, target.m.y);
-      const aggr = clamp(0.05 + Math.max(0, v.matchTime() - 50) / 330, 0.05, 1.3) * this.aggr;
+      const aggr = clamp(0.05 + Math.max(0, v.matchTime() - 120) / 300, 0.05, 1.3) * this.aggr;
       const provoked = h.lastHitBy === target.id && w.tick - h.lastHitTick < 75 && (!early || ratio > 1.15);
       const lateZone = (zone?.stage ?? 0) >= 4;
-      const engage = provoked || lateZone || td < 3.2 || (target.hp / target.maxHp < 0.3 && (td < 7 || aggr > 0.35)) || ratio * aggr > 1.05;
+      const engage = provoked || lateZone || td < (early ? 2.0 : 3.2) || (target.hp / target.maxHp < 0.3 && (td < 7 || aggr > 0.35)) || ratio * aggr > 1.05;
       if (!flee && !engage) { avoid = target; target = null; }
     }
 

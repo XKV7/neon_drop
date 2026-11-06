@@ -115,6 +115,7 @@ class App {
         const a = AUGMENT_BY_ID[String(m.id)]; if (a) toast(`증강 획득: ${a.name}`);
         break;
       }
+      case 'augList': ctx.augments = [...(m.ids as string[])]; ctx.game.augments = [...ctx.augments]; ctx.hud.setAugments(ctx.augments); break;
       case 'supplyWarn': audio.play('siren'); break;
       case 'eliminated': ctx.hud.setEliminated(m.placement as number); ctx.hud.setOffer(null); break;
       case 'end': setTimeout(() => { if (this.match === ctx && ctx.local) this.showResults(); }, 3000); break;

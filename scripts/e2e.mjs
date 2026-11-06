@@ -44,7 +44,7 @@ async function run(query, shots) {
     return page;
   };
   const A = await mk('플레이어A'), B = await mk('플레이어B');
-  if (shots) await A.screenshot({ path: join(shotsDir, '1-lobby.png') });
+  if (shots) await A.screenshot({ path: join(shotsDir, '1-lobby.jpg'), type: 'jpeg', quality: 82 });
 
   // 사설 방
   await A.click('[data-act=room-menu]'); await A.click('[data-act=create-room]');
@@ -60,7 +60,7 @@ async function run(query, shots) {
   await A.click('[data-hero=rail]'); await B.click('[data-hero=hammerdog]');
   await sleep(500);
   await A.hover('.skill-row[data-skill="1"]'); await sleep(600);
-  if (shots) await A.screenshot({ path: join(shotsDir, '2-hero-select.png') });
+  if (shots) await A.screenshot({ path: join(shotsDir, '2-hero-select.jpg'), type: 'jpeg', quality: 82 });
   await A.click('[data-act=lock]'); await B.click('[data-act=lock]');
 
   // 낙하
@@ -124,7 +124,7 @@ async function run(query, shots) {
       if (Math.abs(sa.tick - sb.tick) <= 1 && Math.abs(sa.zr - sb.zr) > 0.5) errors.push(`구역 반경 불일치 A=${sa.zr} B=${sb.zr} (틱 ${sa.tick}/${sb.tick})`);
     }
   }
-  if (shots) await A.screenshot({ path: join(shotsDir, '3-combat.png') });
+  if (shots) await A.screenshot({ path: join(shotsDir, '3-combat.jpg'), type: 'jpeg', quality: 82 });
   console.log(`위치 동기화: ${syncOk}/${syncChecks} 일치 (최대 오차 ${maxErr.toFixed(2)}m)`);
   if (syncChecks > 0 && syncOk < syncChecks) errors.push(`두 화면의 위치가 어긋남 (최대 ${maxErr.toFixed(2)}m)`);
 
@@ -153,7 +153,7 @@ async function run(query, shots) {
   if (gotA) {
     console.log('  DOM 디버그', await A.evaluate(() => { const c = document.querySelector('.aug-card'); const r = c?.getBoundingClientRect(); return JSON.stringify({ n: document.querySelectorAll('.aug-card').length, r, cs: c && getComputedStyle(c).opacity, vis: c && getComputedStyle(c).visibility, disp: c && getComputedStyle(c.parentElement.parentElement).display, hud: !!document.querySelector('.hud') }); }));
     await A.waitForSelector('.aug-card', { timeout: 5000 });
-    if (shots) await A.screenshot({ path: join(shotsDir, '4-augment.png') });
+    if (shots) await A.screenshot({ path: join(shotsDir, '4-augment.jpg'), type: 'jpeg', quality: 82 });
     await A.keyboard.press('Digit1');
     await A.waitForFunction(() => window.__neon.match.augments.length > 0, null, { timeout: 5000 });
     console.log('증강 선택 성공:', await A.evaluate(() => window.__neon.match.augments.join(',')));
@@ -176,7 +176,7 @@ async function run(query, shots) {
     }
   }
   await sleep(800);
-  if (shots) await A.screenshot({ path: join(shotsDir, '5-results.png') });
+  if (shots) await A.screenshot({ path: join(shotsDir, '5-results.jpg'), type: 'jpeg', quality: 82 });
   const credits = await A.evaluate(() => window.__neon.match?.results?.credits ?? -1);
   console.log('결과 화면 도달, 획득 크레딧', credits);
   const net = await A.evaluate(() => ({ corrections: window.__neon.match?.game.corrections, ping: window.__neon.match?.game.ping }));
