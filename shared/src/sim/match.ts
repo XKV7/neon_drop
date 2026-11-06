@@ -14,7 +14,7 @@ import { Btn, Fx, Hero, InputCmd, World } from './world';
 import type { HeroId } from '../data/types';
 
 export interface PlayerSpec { pid: string; name: string; heroId: HeroId; isBot: boolean; botLevel: number; cos?: Cosmetic; dummy?: boolean }
-export interface MatchConfig { seed: number; players: PlayerSpec[]; mode: 'br' | 'practice' | 'demo' }
+export interface MatchConfig { seed: number; players: PlayerSpec[]; mode: 'br' | 'practice' | 'demo'; /** 테스트용: 구역/보급 시간 가속 */ timeScale?: number; /** 테스트용: 경험치 배율 */ xpMult?: number }
 
 export interface Supply { x: number; y: number; state: number; at: number; pickupId: number }
 // state: 0 대기, 1 예고, 2 착지(획득 가능), 3 획득됨
@@ -42,6 +42,7 @@ export class Match implements BotView {
     this.w = new World(map, cfg.seed);
     const w = this.w;
     w.practice = cfg.mode === 'practice';
+    w.xpMult = cfg.xpMult ?? 1;
     if (cfg.mode !== 'practice') w.zone = makeZoneSchedule(cfg.seed);
     const rng = new Rng(cfg.seed ^ 0x77);
     cfg.players.slice(0, 10).forEach((p, i) => {
@@ -82,6 +83,8 @@ export class Match implements BotView {
   pickAugment(heroId: number, idx: number) { const h = this.w.hero(heroId); if (h) chooseAugment(this.w, h, idx); }
 
   get time(): number { return (this.w.tick - this.startTick) / TICK_RATE; }
+  /** 구역/보급 진행 시간 (테스트 가속 반영, 낙하 단계는 실시간) */
+  get zoneTime(): number { const t = this.time, s = this.cfg.timeScale ?? 1; return t <= DROP_PHASE_SEC ? t : DROP_PHASE_SEC + (t - DROP_PHASE_SEC) * s; }
 
   setInput(heroId: number, inp: InputCmd) {
     const h = this.w.hero(heroId);
@@ -146,7 +149,7 @@ export class Match implements BotView {
       const due = w.timers.filter(t => t.at <= w.tick);
       if (due.length) { w.timers = w.timers.filter(t => t.at > w.tick); for (const t of due) t.fn(); }
     }
-    if (w.zone) this.zs = zoneAt(w.zone, this.time);
+    if (w.zone) this.zs = zoneAt(w.zone, this.zoneTime);
 
     // 봇 입력
     for (const [id, b] of this.bots) {
@@ -411,7 +414,7 @@ export class Match implements BotView {
   private updateSupply() {
     const w = this.w;
     for (const s of this.supply) {
-      if (s.state === 0 && this.time >= s.at - SUPPLY_WARN) {
+      if (s.state === 0 && this.zoneTime >= s.at - SUPPLY_WARN) {
         const fz = w.zone ? zoneAt(w.zone, s.at + 20) : null;
         const cx = fz ? fz.x : 0, cy = fz ? fz.y : 0, rr = fz ? Math.max(1, fz.r * 0.6) : 15;
         const a = w.rng.range(0, Math.PI * 2), r = Math.sqrt(w.rng.next()) * rr;
@@ -419,7 +422,7 @@ export class Match implements BotView {
         s.x = spot.x; s.y = spot.y; s.state = 1;
         w.msgs.push({ to: 'all', type: 'supplyWarn', x: s.x, y: s.y, t: SUPPLY_WARN });
         w.msgs.push({ to: 'all', type: 'announce', text: '기업 보급품 낙하 예고! 15초 후 투하', tone: 'supply' });
-      } else if (s.state === 1 && this.time >= s.at) {
+      } else if (s.state === 1 && this.zoneTime >= s.at) {
         const id = w.allocId();
         w.pickups.push({ id, kind: 'crate', x: s.x, y: s.y, xp: 0, used: false, t: 0 });
         s.pickupId = id; s.state = 2;
@@ -484,7 +487,7 @@ export class Match implements BotView {
       w.msgs.push({ to: 'all', type: 'end', winner: this.winner });
     }
     // 안전장치: 너무 오래 끌면 구역이 끝낸다
-    if (this.time > 420 && this.phase === 'play') {
+    if (this.zoneTime > 420 && this.phase === 'play') {
       for (const h of w.heroes) if (h.state === 'play') dealDamage(w, null, h, 90, { kind: 'zone' });
     }
   }

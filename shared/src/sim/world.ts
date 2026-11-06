@@ -145,6 +145,7 @@ export class World {
   zone: ZoneSchedule | null = null;
   nextId = 100;
   practice = false;
+  xpMult = 1;
   phaseStart = 0;
   playStart = 0;
 

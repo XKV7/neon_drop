@@ -1,0 +1,36 @@
+# Fly.io 배포 설정 — README의 "배포" 절 참고
+app = "neon-drop"            # fly launch 시 고유한 이름으로 바뀝니다
+primary_region = "nrt"       # 도쿄 (한국에서 가장 가까운 리전)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DATA_DIR = "/data"
+
+[[mounts]]
+  source = "neon_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 300
+    hard_limit = 400
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

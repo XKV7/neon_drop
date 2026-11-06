@@ -237,7 +237,7 @@ export function killHero(w: World, v: Hero, src: Hero | null) {
       for (let s = 1; s <= 3; s++) { killer.charges[s] = killer.chargeMax[s]; killer.cds[s] = 0; }
     }
     if (killer.stats.killBlast > 0) {
-      w.ev(Fx.Explode, killer.id, 9, v.m.x, v.m.y, 45);
+      w.ev(Fx.Explode, killer.id, 13, v.m.x, v.m.y, 45);
       for (const e of w.enemiesInRadius(killer, v.m.x, v.m.y, 4.5)) dealDamage(w, killer, e, killer.stats.killBlast, { kind: 'passive', skillName: '연쇄 폭발' });
     }
     const totalKills = w.heroes.reduce((s, h) => s + h.kills, 0);
@@ -259,7 +259,7 @@ export function xpForNext(level: number): number { return level >= MAX_LEVEL ? X
 
 export function gainXp(w: World, h: Hero, amount: number) {
   if (h.state === 'dead' || h.level >= MAX_LEVEL) return;
-  h.xp += amount * (1 + h.stats.xp);
+  h.xp += amount * (1 + h.stats.xp) * w.xpMult;
   while (h.level < MAX_LEVEL && h.xp >= XP_TABLE[h.level]) {
     h.level++;
     recomputeHero(h);
