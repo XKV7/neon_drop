@@ -1,0 +1,8 @@
+node_modules
+dist
+*.db
+*.db-*
+data/
+test-results/
+screenshots/tmp
+.DS_Store

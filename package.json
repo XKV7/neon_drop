@@ -1,0 +1,29 @@
+{
+  "name": "neon-drop",
+  "private": true,
+  "version": "1.0.0",
+  "description": "네온 낙하 (Neon Drop) - 쿼터뷰 3D 핵앤슬래시 배틀로얄 웹 멀티플레이 게임",
+  "type": "module",
+  "workspaces": ["shared", "server", "client"],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build -w client && npm run build -w server",
+    "start": "node server/dist/index.js",
+    "typecheck": "tsc -p shared --noEmit && tsc -p server --noEmit && tsc -p client --noEmit",
+    "test": "vitest run",
+    "balance": "tsx scripts/balance.ts",
+    "e2e": "node scripts/e2e.mjs"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.15.30",
+    "@types/three": "0.170.0",
+    "@types/ws": "8.18.1",
+    "esbuild": "0.25.5",
+    "tsx": "4.20.3",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "3.2.7"
+  },
+  "engines": { "node": ">=20" }
+}
