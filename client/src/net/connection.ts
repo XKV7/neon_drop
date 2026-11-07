@@ -1,5 +1,20 @@
 import { PROTOCOL_VERSION, type ClientMsg, type ServerMsg } from '@neon/shared';
-import { netSim } from '../settings';
+import { netSim, urlParams } from '../settings';
+
+/**
+ * 게임 서버 WebSocket 주소.
+ * - 빌드 시 VITE_SERVER_URL (예: https://neon-drop-xxxx.a.run.app) — Firebase Hosting처럼 서버가 다른 도메인일 때
+ * - ?server=주소 로 임시 지정 가능 (테스트용)
+ * - 없으면 페이지와 같은 호스트의 /ws
+ */
+export function serverWsUrl(): string {
+  const base = (urlParams.get('server') || import.meta.env.VITE_SERVER_URL || '').trim().replace(/\/+$/, '');
+  if (base) {
+    const u = base.replace(/^http(s?):\/\//, 'ws$1://');
+    return /^wss?:\/\//.test(u) ? `${u}/ws` : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${u}/ws`;
+  }
+  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+}
 
 export interface GameTransport {
   sendBinary(d: Uint8Array): void;
@@ -26,9 +41,7 @@ export class Connection implements GameTransport {
   lastPacketSize = 0;
 
   connect() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${location.host}/ws`;
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(serverWsUrl());
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onopen = () => { this.connected = true; this.retry = 0; this.onOpen(); };

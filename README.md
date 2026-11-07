@@ -57,6 +57,7 @@ URL에 `?lag=120&loss=5`처럼 붙이면 인위적인 지연(왕복 ms, 편도�
 | `npm test` | Vitest 단위 테스트 (피해/증강 계산, 시야 판정, 지연 보상, 바이너리 직렬화 왕복, 구역 축소, 시전 규칙) |
 | `npm run typecheck` | shared / server / client 타입 검사 |
 | `npm run balance` | 헤드리스 밸런스 시뮬레이션 (어려움 봇 10명 × 2000판). `--games N`, `--level 0~2`, `--seed S`, `--write`(README 표 갱신) |
+| `npm run deploy:server` / `deploy:hosting` | Firebase 배포 (Cloud Run 서버 / Hosting + Firestore 규칙). 아래 배포 절 참고 |
 | `npm run docs` | 데이터 파일에서 README의 영웅/스킬/증강 표 재생성 |
 | `npm run e2e` | Playwright 종단 간 테스트 (`npm run build` 후 실행, `playwright` 패키지와 Chromium 필요) |
 
@@ -403,7 +404,66 @@ neon_drop/
 
 ---
 
-## 7. 배포 (Fly.io 기준)
+## 7. 배포 — Firebase (권장 구성)
+
+Firebase Hosting은 정적 파일만 서빙하고 Cloud Functions는 WebSocket을 지원하지 않기 때문에, 같은 Firebase(Google Cloud) 프로젝트 안에서 다음처럼 나눠 올립니다.
+
+| 역할 | 서비스 | 내용 |
+|---|---|---|
+| 게임 클라이언트 | **Firebase Hosting** | `client/dist` 정적 파일 (`https://<프로젝트>.web.app`) |
+| 게임 서버 | **Cloud Run** (서울 `asia-northeast3`) | 저장소의 `Dockerfile` 그대로, WebSocket 지원 |
+| 계정·크레딧·전적 | **Cloud Firestore** | `STORE=firestore` 로 서버가 Admin SDK로 저장. 브라우저 직접 접근은 `firestore.rules`로 전부 차단 |
+
+클라이언트는 빌드할 때 넣은 Cloud Run 주소(`VITE_SERVER_URL`)로 직접 WebSocket(`wss://…/ws`)에 접속하고, 서버는 `ALLOWED_ORIGINS`에 적힌 Hosting 도메인에서 온 접속만 받습니다.
+
+### 준비물
+- Firebase 프로젝트 (**Blaze 요금제** — Cloud Run 사용에 결제 계정 연결이 필요합니다. 소규모는 대부분 무료 사용량 안에 들어갑니다)
+- [Firebase CLI](https://firebase.google.com/docs/cli)와 [Google Cloud CLI](https://cloud.google.com/sdk/docs/install)
+
+### 단계
+1. **로그인**
+   ```bash
+   firebase login
+   ```
+   ```bash
+   gcloud auth login
+   ```
+2. **프로젝트 연결** — `.firebaserc`의 `your-firebase-project-id`를 실제 프로젝트 ID로 바꾸거나:
+   ```bash
+   firebase use --add
+   ```
+3. **필요한 API 켜기와 Firestore 생성** (최초 1회, `내프로젝트`를 실제 ID로)
+   ```bash
+   gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com firestore.googleapis.com --project 내프로젝트
+   ```
+   ```bash
+   gcloud firestore databases create --location=asia-northeast3 --project 내프로젝트
+   ```
+4. **게임 서버를 Cloud Run에 배포** — 끝나면 서버 주소(`https://neon-drop-…-du.a.run.app`)가 출력됩니다.
+   ```bash
+   PROJECT_ID=내프로젝트 npm run deploy:server
+   ```
+   `scripts/deploy-cloudrun.sh`가 하는 일: 소스(`Dockerfile`)로 빌드 → `STORE=firestore`, `ALLOWED_ORIGINS=https://내프로젝트.web.app,https://내프로젝트.firebaseapp.com` 설정 → **인스턴스 1개 고정**(`--max-instances 1`, 매치·로비가 서버 메모리에 있음), 요청 제한 시간 60분(긴 WebSocket 연결), 세션 어피니티, CPU 상시 할당(접속 사이에도 게임 루프가 돌도록). 기본 Compute 서비스 계정으로 Firestore에 접근하므로 별도 키 파일은 필요 없습니다. 조직 정책으로 권한이 막혀 있다면 그 서비스 계정에 `Cloud Datastore 사용자(roles/datastore.user)` 역할을 주세요.
+5. **클라이언트에 서버 주소 넣기** — `client/.env.production.example`을 `client/.env.production`으로 복사하고 4단계의 주소를 넣습니다.
+   ```
+   VITE_SERVER_URL=https://neon-drop-…-du.a.run.app
+   ```
+6. **Hosting과 Firestore 규칙 배포** (`firebase.json`의 predeploy가 클라이언트를 빌드하며, 서버 주소가 없으면 빌드를 멈추고 알려줍니다)
+   ```bash
+   npm run deploy:hosting
+   ```
+7. 접속: `https://내프로젝트.web.app` — 이 주소를 친구에게 보내면 됩니다. 서버 상태는 `https://neon-drop-…-du.a.run.app/health` (`"store":"firestore"`가 보이면 정상).
+
+참고:
+- **사용자 지정 도메인**을 Hosting에 붙였다면 그 주소도 허용해야 합니다: `ALLOWED_ORIGINS="https://내도메인,https://내프로젝트.web.app" PROJECT_ID=내프로젝트 npm run deploy:server`
+- 업데이트: 서버를 바꿨으면 4단계, 클라이언트를 바꿨으면 6단계만 다시 실행합니다. 둘 사이의 프로토콜이 바뀌면 둘 다 배포하세요(구버전 클라이언트에는 새로고침 안내가 뜹니다).
+- 아무도 접속하지 않으면 Cloud Run 인스턴스가 0개로 내려가 비용이 들지 않고, 다음 접속 때 몇 초 안에 다시 켜집니다. 항상 켜 두려면 스크립트의 `--min-instances 0`을 `1`로 바꾸세요(상시 과금).
+- Cloud Run의 WebSocket 연결은 최대 60분 뒤 끊기지만 클라이언트가 자동으로 다시 접속하고, 판 도중이면 20초 재접속 규칙으로 같은 판에 복귀합니다.
+- 로컬에서 Firestore 저장소 확인: `npx firebase-tools emulators:start --only firestore --project demo-neon` 실행 후 `FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 STORE=firestore FIRESTORE_PROJECT_ID=demo-neon npm start`. 같은 환경 변수로 `npm test`를 돌리면 Firestore 저장소 테스트도 실행됩니다.
+
+## 8. 배포 — Fly.io (서버 하나로 전부)
+
+
 
 WebSocket과 영구 볼륨(SQLite)을 지원하고 소규모는 무료~저렴하게 운영할 수 있는 **Fly.io**를 기준으로 안내합니다. 저장소에 `Dockerfile`과 `fly.toml`이 포함되어 있습니다.
 
@@ -453,12 +513,17 @@ WebSocket과 영구 볼륨(SQLite)을 지원하고 소규모는 무료~저렴하
 | `DATA_DIR` | `./data` (Docker는 `/data`) | SQLite 파일 위치 — 영구 볼륨을 여기에 마운트 |
 | `DB_PATH` | `$DATA_DIR/neon-drop.db` | DB 파일 경로 직접 지정 |
 | `STATIC_DIR` | `client/dist` | 정적 파일 위치 |
+| `STORE` | `sqlite` | 계정 저장소: `sqlite` 또는 `firestore` |
+| `FIRESTORE_PROJECT_ID` | (자동) | Firestore 프로젝트 ID (`STORE=firestore`일 때) |
+| `FIRESTORE_PREFIX` | (없음) | 컬렉션 이름 접두어 (테스트와 운영 데이터를 나눌 때) |
+| `ALLOWED_ORIGINS` | (모두 허용) | WebSocket 접속을 허용할 페이지 출처, 쉼표 구분 (예: Firebase Hosting 주소) |
+| `VITE_SERVER_URL` | (같은 호스트) | **클라이언트 빌드용**: 서버가 다른 도메인일 때 서버 주소 (`client/.env.production`) |
 | `NEON_XP_MULT` | `1` | 테스트용 경험치 배율 (E2E 전용, 운영에서는 설정하지 마세요) |
 | `NEON_TIME_SCALE` | `1` | 테스트용 구역/보급 진행 가속 (E2E 전용) |
 
 ---
 
-## 8. 검증
+## 9. 검증
 
 - `npm test` — 34개 단위 테스트 통과 (피해 공식과 보호막, 레벨 배율, 구르기 무적, 처치 보상, 증강 합산·상한·패치·중복 금지, 바이너리 왕복과 실제 호스트 스냅샷 델타 연쇄, 지연 보상(되감기 시 명중/없으면 빗나감), 시야(거리·벽·홀로그램 구역·은신), 구역 축소 일정, 쿨타임/봉인 검증, 봇 매치 완주).
 - `npm run balance` — 위 밸런스 표.

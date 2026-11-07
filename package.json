@@ -18,7 +18,10 @@
     "balance": "tsx scripts/balance.ts",
     "e2e": "node scripts/e2e.mjs",
     "docs": "tsx scripts/docs.ts --write",
-    "build:offline": "npm run build:offline -w client"
+    "build:offline": "npm run build:offline -w client",
+    "build:hosting": "node scripts/build-hosting.mjs",
+    "deploy:server": "bash scripts/deploy-cloudrun.sh",
+    "deploy:hosting": "firebase deploy --only hosting,firestore"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

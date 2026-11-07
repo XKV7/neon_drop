@@ -4,7 +4,7 @@ import type { Session } from './session';
 export interface Participant { session: Session | null; pid: string; name: string; heroId: HeroId; isBot: boolean; botLevel: number; cos: Cosmetic }
 
 export interface RunnerHooks {
-  onResult(runner: MatchRunner, pid: string, row: ResultRow, credits: number): number; // 저장 후 총 크레딧 반환
+  onResult(runner: MatchRunner, pid: string, row: ResultRow, credits: number): void;
   onFinished(runner: MatchRunner): void;
 }
 

@@ -6,7 +6,7 @@ import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { ClientMsg } from '@neon/shared';
-import { Store } from './db';
+import { openStore } from './db';
 import { Lobby } from './lobby';
 import { Session } from './session';
 
@@ -17,8 +17,11 @@ const DATA_DIR = process.env.DATA_DIR ?? resolve(here, '../../data');
 const STATIC_DIR = process.env.STATIC_DIR ?? resolve(here, '../../client/dist');
 const startedAt = Date.now();
 
-const store = new Store(process.env.DB_PATH ?? join(DATA_DIR, 'neon-drop.db'));
+const store = await openStore(process.env, join(DATA_DIR, 'neon-drop.db'));
 const lobby = new Lobby(store);
+/** 다른 도메인(예: Firebase Hosting)에서 접속을 허용할 출처 목록. 비우면 모두 허용 */
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '').split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean);
+const originAllowed = (origin: string | undefined) => !ALLOWED_ORIGINS.length || !origin || ALLOWED_ORIGINS.includes(origin);
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
@@ -50,7 +53,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse) {
 const server = createServer((req, res) => {
   if (req.url === '/health' || req.url?.startsWith('/health?')) {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    return res.end(JSON.stringify({ ok: true, uptime: Math.round((Date.now() - startedAt) / 1000), ...lobby.stats(), memoryMB: Math.round(process.memoryUsage().rss / 1048576) }));
+    return res.end(JSON.stringify({ ok: true, uptime: Math.round((Date.now() - startedAt) / 1000), store: store.kind, ...lobby.stats(), memoryMB: Math.round(process.memoryUsage().rss / 1048576) }));
   }
   if (!existsSync(STATIC_DIR)) {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -59,7 +62,10 @@ const server = createServer((req, res) => {
   void serveStatic(req, res);
 });
 
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024, perMessageDeflate: false });
+const wss = new WebSocketServer({
+  server, path: '/ws', maxPayload: 16 * 1024, perMessageDeflate: false,
+  verifyClient: (info: { origin?: string }) => originAllowed(info.origin),
+});
 wss.on('connection', (ws, req) => {
   const ip = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0].trim() ?? req.socket.remoteAddress ?? '';
   const s = new Session(ws, ip);
@@ -91,9 +97,10 @@ wss.on('connection', ws => { const x = ws as typeof ws & { _alive?: boolean }; x
 server.listen(PORT, HOST, () => {
   console.log(`\n  ▶ 네온 낙하 서버 실행: http://localhost:${PORT}`);
   for (const list of Object.values(networkInterfaces())) for (const n of list ?? []) if (n.family === 'IPv4' && !n.internal) console.log(`    LAN: http://${n.address}:${PORT}`);
-  console.log(`    상태 확인: http://localhost:${PORT}/health\n`);
+  console.log(`    상태 확인: http://localhost:${PORT}/health`);
+  console.log(`    계정 저장소: ${store.kind}${ALLOWED_ORIGINS.length ? ` · 허용 출처: ${ALLOWED_ORIGINS.join(', ')}` : ''}\n`);
 });
 
-const shutdown = () => { lobby.close(); wss.close(); server.close(); store.db.close(); process.exit(0); };
+const shutdown = () => { lobby.close(); wss.close(); server.close(); store.close().finally(() => process.exit(0)); };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

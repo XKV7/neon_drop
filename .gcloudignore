@@ -1,0 +1,11 @@
+# Cloud Run 소스 배포(gcloud run deploy --source .)에서 올리지 않을 파일
+.git
+.gitignore
+node_modules
+**/node_modules
+**/dist
+client/dist-offline
+data
+docs
+*.db
+.firebase

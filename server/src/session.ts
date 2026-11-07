@@ -17,6 +17,7 @@ export class Session {
   runner: MatchRunner | null = null;
   heroId = 0;
   alive = true;
+  helloPending = false;
   msgCount = 0;
   msgWindow = Date.now();
   ip: string;

@@ -7,3 +7,8 @@ dist-offline
 test-results/
 screenshots/tmp
 .DS_Store
+client/.env.production
+.env.local
+.firebase/
+firebase-debug.log
+firestore-debug.log

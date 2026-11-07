@@ -3,7 +3,7 @@ import {
   HERO_IDS, HERO_SELECT_SEC, QUEUE_WAIT_SEC, MAX_PLAYERS, PROTOCOL_VERSION, RECONNECT_GRACE_SEC, Rng, SHOP_BY_ID, botName, filterChat, isFreeItem, heroPalettes, SKIN_NAMES,
   type ClientMsg, type Cosmetic, type HeroId, type ResultRow, type ServerMsg,
 } from '@neon/shared';
-import { Store, toProfile, type Account } from './db';
+import { applyResult, toProfile, type Account, type AccountStore } from './db';
 import { MatchRunner, type Participant } from './matchRunner';
 import { Session } from './session';
 
@@ -14,7 +14,7 @@ interface Select { id: string; slots: SelectSlot[]; deadline: number; botFill: b
 const NAME_RE = /^[\p{L}\p{N}_\-. ]{2,12}$/u;
 
 export class Lobby {
-  store: Store;
+  store: AccountStore;
   sessions = new Set<Session>();
   queue: Session[] = [];
   queueDeadline = 0;
@@ -26,7 +26,7 @@ export class Lobby {
   rng = new Rng(Date.now() & 0xffffffff);
   private timer: NodeJS.Timeout;
 
-  constructor(store: Store) {
+  constructor(store: AccountStore) {
     this.store = store;
     this.timer = setInterval(() => this.update(), 250);
   }
@@ -57,13 +57,13 @@ export class Lobby {
 
   // ───────── 메시지 처리 ─────────
   handle(s: Session, msg: ClientMsg) {
-    if (msg.type === 'hello') return this.hello(s, msg);
+    if (msg.type === 'hello') { void this.hello(s, msg); return; }
     if (!s.account) return s.send({ type: 'error', text: '먼저 접속 인사(hello)가 필요합니다.' });
     switch (msg.type) {
       case 'setName': {
         const name = String(msg.name ?? '').trim();
         if (!NAME_RE.test(name) || filterChat(name) !== name) return s.send({ type: 'error', text: '닉네임은 2~12자, 금칙어 없이 입력하세요.' });
-        s.account.name = name; this.store.save(s.account);
+        s.account.name = name; this.persist(s.account);
         return s.send({ type: 'profile', profile: toProfile(s.account) });
       }
       case 'queue': return this.joinQueue(s);
@@ -98,14 +98,34 @@ export class Lobby {
     }
   }
 
-  private hello(s: Session, msg: { token?: string; name?: string; version: number }) {
+  /** 저장 실패는 게임 진행을 막지 않고 기록만 남긴다 */
+  private persist(a: Account) { this.store.save(a).catch(e => console.error('계정 저장 실패', a.token.slice(0, 6), e)); }
+
+  /** 접속 중이면 메모리 계정, 아니면 저장소에서 로드 */
+  private async accountFor(token: string): Promise<Account | null> {
+    for (const s of this.sessions) if (s.account?.token === token) return s.account;
+    return this.store.load(token);
+  }
+
+  private async hello(s: Session, msg: { token?: string; name?: string; version: number }) {
     if (msg.version !== PROTOCOL_VERSION) return s.send({ type: 'error', text: '게임이 업데이트되었습니다. 새로고침 해주세요.' });
-    let acc: Account | null = msg.token ? this.store.get(String(msg.token)) : null;
-    if (!acc) {
-      let name = String(msg.name ?? '').trim();
-      if (!NAME_RE.test(name) || filterChat(name) !== name) name = '게스트' + Math.floor(1000 + Math.random() * 9000);
-      acc = this.store.create(name);
+    if (s.helloPending) return;
+    s.helloPending = true;
+    let acc: Account | null;
+    try {
+      acc = msg.token ? await this.accountFor(String(msg.token)) : null;
+      if (!acc) {
+        let name = String(msg.name ?? '').trim();
+        if (!NAME_RE.test(name) || filterChat(name) !== name) name = '게스트' + Math.floor(1000 + Math.random() * 9000);
+        acc = await this.store.create(name);
+      }
+    } catch (e) {
+      console.error('계정 로드 실패', e);
+      s.helloPending = false;
+      return s.send({ type: 'error', text: '계정 서버에 연결하지 못했습니다. 잠시 후 다시 시도하세요.' });
     }
+    s.helloPending = false;
+    if (!s.alive) return;
     // 같은 계정의 다른 연결은 종료
     for (const o of this.sessions) if (o !== s && o.account?.token === acc.token) { o.send({ type: 'error', text: '다른 곳에서 접속했습니다.' }); o.ws.close(); }
     s.account = acc; s.state = 'idle';
@@ -261,18 +281,19 @@ export class Lobby {
     runner.start();
   }
 
-  private onResult(_r: MatchRunner, pid: string, row: ResultRow, credits: number): number {
-    const acc = this.store.get(pid);
-    if (!acc) return 0;
-    this.store.addResult(acc, row.heroId, row.placement, row.kills, credits);
-    // 메모리에 있는 세션 계정도 갱신
-    for (const s of this.sessions) if (s.account?.token === pid) { s.account = acc; s.send({ type: 'profile', profile: toProfile(acc) }); }
-    return acc.credits;
+  private onResult(_r: MatchRunner, pid: string, row: ResultRow, credits: number) {
+    void (async () => {
+      const acc = await this.accountFor(pid);
+      if (!acc) return;
+      applyResult(acc, row.heroId, row.placement, row.kills, credits);
+      this.persist(acc);
+      for (const s of this.sessions) if (s.account === acc) s.send({ type: 'profile', profile: toProfile(acc) });
+    })().catch(e => console.error('결과 저장 실패', e));
   }
 
   private onFinished(r: MatchRunner) {
     const win = r.match.w.hero(r.match.winner);
-    this.store.recordMatch(r.id, win?.name ?? '', r.parts.length, r.match.w.tick / 30);
+    this.store.recordMatch(r.id, win?.name ?? '', r.parts.length, r.match.w.tick / 30).catch(e => console.error('매치 기록 실패', e));
     // 매치 객체는 재대결 대기를 위해 잠시 유지
     setTimeout(() => { this.runners.delete(r.id); for (const [k, g] of this.graces) if (g.runner === r) this.graces.delete(k); }, 60_000);
   }
@@ -310,7 +331,7 @@ export class Lobby {
     if (acc.credits < item.price) return s.send({ type: 'error', text: '크레딧이 부족합니다.' });
     acc.credits -= item.price;
     acc.owned.push(item.id);
-    this.store.save(acc);
+    this.persist(acc);
     s.send({ type: 'toast', text: `「${item.name}」 구매 완료!` });
     s.send({ type: 'profile', profile: toProfile(acc) });
   }
@@ -338,7 +359,7 @@ export class Lobby {
       }
       default: return;
     }
-    this.store.save(acc);
+    this.persist(acc);
     s.send({ type: 'profile', profile: toProfile(acc) });
   }
 

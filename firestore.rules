@@ -1,0 +1,10 @@
+rules_version = '2';
+// 계정·크레딧·전적은 게임 서버(Cloud Run, Admin SDK)만 읽고 씁니다.
+// 브라우저에서 Firestore에 직접 접근하는 것은 모두 거부합니다 (크레딧 조작 방지).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
