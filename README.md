@@ -422,7 +422,39 @@ neon_drop/
 
 ---
 
-## 7. 배포 — Firebase (권장 구성)
+## 7. 무료로만 배포하기 (권장)
+
+결제 카드 없이 쓰는 무료 서비스만으로 친구들과 플레이할 수 있게 구성합니다. Firebase 무료(Spark) 요금제에서는 Cloud Run을 쓸 수 없기 때문에 게임 서버는 Render 무료 플랜에 둡니다.
+
+| 역할 | 무료 서비스 | 하는 일 |
+|---|---|---|
+| 게임 화면 | **GitHub Pages** | `main`에 푸시하면 `.github/workflows/pages.yml`이 자동 배포 |
+| 게임 서버 | **Render 무료 웹 서비스** | `render.yaml`(Blueprint)로 `main` 푸시마다 자동 재배포, WebSocket 지원 |
+| 계정·크레딧·전적 | **Firestore** (Firebase **Spark 무료** 요금제) | 서버가 서비스 계정 키로 저장 |
+
+### 단계
+1. **Firebase 프로젝트 (무료 Spark)** — [Firebase 콘솔](https://console.firebase.google.com)에서 프로젝트를 만들고 *Firestore Database → 데이터베이스 만들기*(위치 `asia-northeast3` 서울, 프로덕션 모드). *규칙* 탭에 이 저장소의 `firestore.rules` 내용을 붙여 넣고 게시합니다(브라우저의 직접 접근 차단).
+2. **서비스 계정 키** — Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → *새 비공개 키 생성* → JSON 파일을 내려받습니다. (이 파일은 저장소에 올리지 마세요.)
+3. **저장소를 `main`에 합치기** — 자동 배포는 `main` 브랜치 기준입니다.
+4. **Render** — [render.com](https://render.com) 가입(GitHub 계정으로) → *New → Blueprint* → 이 저장소 선택. 입력 칸 두 개를 채웁니다.
+   - `FIREBASE_SERVICE_ACCOUNT`: 2단계 JSON 파일 내용 전체를 붙여 넣기
+   - `ALLOWED_ORIGINS`: `https://<깃허브아이디>.github.io`
+   배포가 끝나면 서버 주소(`https://neon-drop-xxxx.onrender.com`)가 나옵니다. `…/health`를 열어 `"store":"firestore"`가 보이면 정상입니다.
+5. **GitHub Pages** — 저장소 Settings → Pages → Source를 **GitHub Actions**로. Settings → Secrets and variables → Actions → *Variables*에 `SERVER_URL` = 4단계 서버 주소. Actions 탭에서 *GitHub Pages 배포*를 한 번 실행(이후는 `main` 푸시마다 자동).
+6. 접속: `https://<깃허브아이디>.github.io/neon_drop/` — 이 주소를 친구에게 보내면 됩니다.
+
+### 무료 플랜의 제약
+- **서버 잠들기**: Render 무료 서버는 15분 동안 아무 접속이 없으면 잠들고, 다음 접속 때 깨어나는 데 최대 1분쯤 걸립니다. 화면에 "서버를 깨우는 중…"이 표시되고, 그동안에도 혼자 하기(봇전)·연습장은 바로 할 수 있습니다. 판이 진행되는 동안에는 게임 메시지가 계속 오가므로 잠들지 않습니다.
+- **성능**: 무료 서버는 CPU가 작아 동시에 여러 판을 돌리기 어렵습니다. 친구들끼리 한두 판씩 하는 용도로 생각하세요(매치 하나의 서버 부담은 작습니다).
+- **Firestore 무료 사용량**: 하루 읽기·쓰기 횟수에 한도가 있습니다. 이 게임은 접속할 때 1회 읽고, 판이 끝나거나 상점을 쓸 때만 쓰므로 소규모로는 넉넉합니다. 한도를 넘으면 그날은 저장이 실패하고(게임은 계속됨) 다음 날 복구됩니다.
+- **키를 넣지 않으면**: 서버는 경고를 남기고 임시 SQLite로 동작합니다. 이 경우 서버가 재시작·재배포될 때마다 계정과 크레딧이 초기화됩니다.
+- 비용이 생길 수 있는 설정(Firebase Blaze, Cloud Run)은 아래 8절이며, 이 구성에서는 필요 없습니다. `deploy-firebase.yml` 워크플로는 `GCP_PROJECT_ID` 변수가 없으면 실행되지 않으니 그대로 두면 됩니다.
+
+## 8. 배포 — Firebase + Cloud Run (유료 Blaze 요금제 필요)
+
+> Cloud Run은 Firebase 무료(Spark) 요금제에서 쓸 수 없고, 결제 계정을 연결한 Blaze 요금제가 필요합니다. 소규모 사용량은 대부분 무료 사용량 안에 들어가지만 카드 등록이 필요하므로, 무료로만 운영하려면 위 7절을 쓰세요.
+
+### Firebase + Cloud Run 구성
 
 Firebase Hosting은 정적 파일만 서빙하고 Cloud Functions는 WebSocket을 지원하지 않기 때문에, 같은 Firebase(Google Cloud) 프로젝트 안에서 다음처럼 나눠 올립니다.
 
@@ -502,7 +534,7 @@ Firebase Hosting은 정적 파일만 서빙하고 Cloud Functions는 WebSocket�
 
 `.github/workflows/ci.yml`은 PR과 `main` 푸시마다 타입 검사·테스트·빌드·축소 밸런스 시뮬레이션을 돌립니다.
 
-## 8. 배포 — Fly.io (서버 하나로 전부)
+## 9. 배포 — Fly.io (서버 하나로 전부, 유료)
 
 
 
@@ -555,6 +587,7 @@ WebSocket과 영구 볼륨(SQLite)을 지원하고 소규모는 무료~저렴하
 | `DB_PATH` | `$DATA_DIR/neon-drop.db` | DB 파일 경로 직접 지정 |
 | `STATIC_DIR` | `client/dist` | 정적 파일 위치 |
 | `STORE` | `sqlite` | 계정 저장소: `sqlite` 또는 `firestore` |
+| `FIREBASE_SERVICE_ACCOUNT` | (없음) | 외부 호스팅(Render 등)에서 Firestore에 접속할 서비스 계정 JSON (그대로 또는 base64) |
 | `FIRESTORE_PROJECT_ID` | (자동) | Firestore 프로젝트 ID (`STORE=firestore`일 때) |
 | `FIRESTORE_PREFIX` | (없음) | 컬렉션 이름 접두어 (테스트와 운영 데이터를 나눌 때) |
 | `ALLOWED_ORIGINS` | (모두 허용) | WebSocket 접속을 허용할 페이지 출처, 쉼표 구분 (예: Firebase Hosting 주소) |
@@ -564,7 +597,7 @@ WebSocket과 영구 볼륨(SQLite)을 지원하고 소규모는 무료~저렴하
 
 ---
 
-## 9. 검증
+## 10. 검증
 
 - `npm test` — 34개 단위 테스트 통과 (피해 공식과 보호막, 레벨 배율, 구르기 무적, 처치 보상, 증강 합산·상한·패치·중복 금지, 바이너리 왕복과 실제 호스트 스냅샷 델타 연쇄, 지연 보상(되감기 시 명중/없으면 빗나감), 시야(거리·벽·홀로그램 구역·은신), 구역 축소 일정, 쿨타임/봉인 검증, 봇 매치 완주).
 - `npm run balance` — 위 밸런스 표.

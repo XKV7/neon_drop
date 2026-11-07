@@ -3,7 +3,7 @@ import {
   HEROES, HERO_BY_ID, ROLE_NAMES, AUGMENT_BY_ID, SHOP_ITEMS, heroPalettes, SKIN_NAMES, KILL_EFFECTS, DROP_EFFECTS, EMOTES, TITLES, isFreeItem, BOT_LEVELS,
   type HeroId, type Profile, type ServerMsg, type ResultRow, type ShopItem, TIER_NAMES, Btn,
 } from '@neon/shared';
-import { Connection, type GameTransport } from './net/connection';
+import { Connection, type GameTransport, wakeServer, isRemoteServer } from './net/connection';
 import { LocalServer } from './net/local';
 import { ClientGame } from './game/clientGame';
 import { Input } from './game/input';
@@ -92,7 +92,24 @@ class App {
     this.conn.onClose = () => { this.serverOk = false; if (this.screen === 'lobby') this.render(); };
     this.conn.onJson = m => this.onServer(m as ServerMsg);
     this.conn.onBinary = d => { if (this.match && !this.match.local) this.match.game.handleBinary(d); };
-    if (!this.offline) this.conn.connect();
+    if (!this.offline) {
+      if (isRemoteServer()) wakeServer();
+      this.conn.connect();
+      // 연결 상태 문구 갱신 (무료 서버가 잠들어 있으면 깨어나는 데 시간이 걸린다)
+      const started = performance.now();
+      setInterval(() => {
+        const el = this.ui.querySelector('.conn-status');
+        if (el) el.textContent = this.connStatusText(performance.now() - started);
+        if (!this.serverOk && performance.now() - started > 4000 && isRemoteServer() && Math.random() < 0.1) wakeServer();
+      }, 1000);
+    }
+  }
+
+  private connStatusText(elapsed: number): string {
+    if (this.offline) return '● 오프라인 체험판 — 봇전·연습장을 바로 플레이할 수 있습니다 (친구와 멀티플레이는 서버 배포 필요)';
+    if (this.serverOk) return '● 서버 연결됨';
+    if (elapsed > 4000) return `○ 서버를 깨우는 중… ${Math.round(elapsed / 1000)}초 (무료 서버는 한동안 접속이 없으면 잠들어 최대 1분 걸립니다. 그동안 봇전·연습장은 바로 할 수 있어요)`;
+    return '○ 서버 연결 중…';
   }
 
   private onServer(m: ServerMsg) {
@@ -510,7 +527,7 @@ class App {
       <div class="lore">2099년, 메가시티 신서울의 버려진 구역. 기업이 생중계하는 불법 데스게임 <b class="glow-cyan">「드롭」</b>.<br>데이터 붕괴가 구역을 지워 나가는 동안, 최후의 1인만이 살아남는다.</div>
       <div class="row title-row"><input class="field" id="nick" maxlength="12" placeholder="닉네임 (2~12자)" value="${esc(name)}"><button class="btn pink big" data-act="start">드롭 입장</button></div>
       ${document.fullscreenEnabled ? '<button class="btn small ghost" data-fullscreen>⛶ 전체 화면</button>' : ''}
-      <div class="dim" style="font-size:13px">${this.offline ? '● 오프라인 체험판 — 봇전·연습장을 바로 플레이할 수 있습니다 (친구와 멀티플레이는 서버 배포 필요)' : this.serverOk ? '● 서버 연결됨' : '○ 서버 연결 중… (연결되지 않아도 봇전·연습장은 이용 가능)'}${netSim.lag || netSim.loss ? ` · 네트워크 시뮬레이션: 지연 ${netSim.lag}ms 손실 ${netSim.loss}%` : ''}</div>
+      <div class="dim conn-status" style="font-size:13px;max-width:min(520px,92vw)">${this.connStatusText(0)}</div><div class="dim" style="font-size:13px">${netSim.lag || netSim.loss ? ` · 네트워크 시뮬레이션: 지연 ${netSim.lag}ms 손실 ${netSim.loss}%` : ''}</div>
     </div>`;
     setTimeout(() => (s.querySelector('#nick') as HTMLInputElement)?.addEventListener('keydown', e => { if (e.key === 'Enter') this.startFromTitle(); }), 0);
   }
@@ -548,7 +565,7 @@ class App {
         <div class="panel profile-card">
           ${p ? `<div class="dim" style="font-size:12px">${esc(TITLES[p.loadout.title] ?? '')}</div><div style="font-size:22px;font-weight:800">${esc(p.name)}</div>
           <div style="margin-top:8px">크레딧 <span class="credits">${p.credits}</span></div>
-          <div class="dim" style="font-size:13px;margin-top:6px">${p.stats.games}판 · 1위 ${p.stats.wins}회 · 처치 ${p.stats.kills}</div>` : `<div class="dim">${this.serverOk ? '계정 불러오는 중…' : '서버에 연결되지 않았습니다. 연습장은 이용할 수 있습니다.'}</div>`}
+          <div class="dim" style="font-size:13px;margin-top:6px">${p.stats.games}판 · 1위 ${p.stats.wins}회 · 처치 ${p.stats.kills}</div>` : `<div class="dim conn-status">${this.serverOk ? '계정 불러오는 중…' : this.connStatusText(5000)}</div>`}
         </div>
         <div class="panel profile-card hidden" id="roomMenu">
           <h3 style="margin:0 0 10px">사설 방</h3>

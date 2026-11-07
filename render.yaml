@@ -1,0 +1,21 @@
+# Render 무료 웹 서비스로 게임 서버 배포 (Blueprint).
+# Render 대시보드 → New → Blueprint → 이 저장소 선택. main 브랜치에 푸시할 때마다 자동 재배포.
+services:
+  - type: web
+    name: neon-drop
+    runtime: docker
+    plan: free
+    region: singapore          # 한국과 가장 가까운 리전
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: STORE
+        value: firestore
+      # Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 (JSON 전체 붙여넣기)
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      # 게임 화면 주소 (예: https://아이디.github.io) — 쉼표로 여러 개
+      - key: ALLOWED_ORIGINS
+        sync: false

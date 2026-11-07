@@ -35,3 +35,15 @@ describe('계정 저장소', () => {
     await s.close();
   });
 });
+
+import { parseServiceAccount } from '../src/db';
+describe('서비스 계정 키 읽기 (외부 호스팅 환경 변수)', () => {
+  const sa = { type: 'service_account', project_id: 'neon-123', client_email: 'x@neon-123.iam.gserviceaccount.com', private_key: '-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----\n' };
+  it('JSON 그대로', () => expect(parseServiceAccount(JSON.stringify(sa))?.project_id).toBe('neon-123'));
+  it('base64', () => expect(parseServiceAccount(Buffer.from(JSON.stringify(sa)).toString('base64'))?.client_email).toBe(sa.client_email));
+  it('줄바꿈이 \\n 문자열로 바뀐 키 복원', () => {
+    const broken = JSON.stringify(sa).replace(/\\n/g, '\\\\n');
+    expect(parseServiceAccount(broken)?.private_key).toContain('\nABC\n');
+  });
+  it('잘못된 값은 null', () => { expect(parseServiceAccount('nope')).toBeNull(); expect(parseServiceAccount('{"a":1}')).toBeNull(); expect(parseServiceAccount(undefined)).toBeNull(); });
+});

@@ -7,6 +7,14 @@ import { netSim, urlParams } from '../settings';
  * - ?server=주소 로 임시 지정 가능 (테스트용)
  * - 없으면 페이지와 같은 호스트의 /ws
  */
+/** 서버가 다른 도메인(무료 호스팅 등)인지 */
+export function isRemoteServer(): boolean { return !!(urlParams.get('server') || import.meta.env.VITE_SERVER_URL); }
+
+/** 잠든 무료 서버를 HTTP 요청으로 미리 깨운다 (응답 내용은 필요 없음) */
+export function wakeServer() {
+  try { void fetch(serverWsUrl().replace(/^ws/, 'http').replace(/\/ws$/, '/health'), { mode: 'no-cors', cache: 'no-store' }).catch(() => {}); } catch { /* 무시 */ }
+}
+
 export function serverWsUrl(): string {
   const base = (urlParams.get('server') || import.meta.env.VITE_SERVER_URL || '').trim().replace(/\/+$/, '');
   if (base) {

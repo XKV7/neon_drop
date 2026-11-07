@@ -106,10 +106,13 @@ export class FirestoreStore implements AccountStore {
   private fs: any;
   private prefix = '';
 
-  static async open(opts: { projectId?: string; prefix?: string }): Promise<FirestoreStore> {
-    const { initializeApp, getApps } = await import('firebase-admin/app');
+  static async open(opts: { projectId?: string; prefix?: string; serviceAccount?: ServiceAccountJson | null }): Promise<FirestoreStore> {
+    const { initializeApp, getApps, cert } = await import('firebase-admin/app');
     const { getFirestore } = await import('firebase-admin/firestore');
-    const app = getApps()[0] ?? initializeApp(opts.projectId ? { projectId: opts.projectId } : undefined);
+    const sa = opts.serviceAccount;
+    const app = getApps()[0] ?? initializeApp(sa
+      ? { credential: cert({ projectId: sa.project_id, clientEmail: sa.client_email, privateKey: sa.private_key }), projectId: opts.projectId || sa.project_id }
+      : opts.projectId ? { projectId: opts.projectId } : undefined);
     const s = new FirestoreStore();
     s.fs = getFirestore(app);
     s.fs.settings({ ignoreUndefinedProperties: true });
@@ -143,10 +146,38 @@ export class FirestoreStore implements AccountStore {
   async close() { await this.fs.terminate(); }
 }
 
+export interface ServiceAccountJson { project_id: string; client_email: string; private_key: string }
+
+/**
+ * 서비스 계정 키 (Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키).
+ * Render 같은 외부 호스팅에서 환경 변수 FIREBASE_SERVICE_ACCOUNT 에 JSON 그대로 또는 base64로 넣는다.
+ */
+export function parseServiceAccount(raw: string | undefined): ServiceAccountJson | null {
+  if (!raw || !raw.trim()) return null;
+  let text = raw.trim();
+  if (!text.startsWith('{')) {
+    try { text = Buffer.from(text, 'base64').toString('utf8'); } catch { return null; }
+  }
+  try {
+    const j = JSON.parse(text);
+    if (!j.project_id || !j.client_email || !j.private_key) return null;
+    // 환경 변수에 붙여 넣으며 줄바꿈이 \n 문자열로 바뀐 경우 복원
+    return { project_id: j.project_id, client_email: j.client_email, private_key: String(j.private_key).replace(/\\n/g, '\n') };
+  } catch { return null; }
+}
+
 /** 환경 변수로 저장소 선택: STORE=firestore | sqlite(기본) */
 export async function openStore(env: NodeJS.ProcessEnv, defaultDbPath: string): Promise<AccountStore> {
   const kind = (env.STORE ?? 'sqlite').toLowerCase();
-  if (kind === 'firestore') return FirestoreStore.open({ projectId: env.FIRESTORE_PROJECT_ID || env.GOOGLE_CLOUD_PROJECT, prefix: env.FIRESTORE_PREFIX });
+  if (kind === 'firestore') {
+    const sa = parseServiceAccount(env.FIREBASE_SERVICE_ACCOUNT);
+    if (env.FIREBASE_SERVICE_ACCOUNT && !sa) console.error('⚠ FIREBASE_SERVICE_ACCOUNT 값을 읽지 못했습니다. 서비스 계정 JSON 전체(또는 base64)를 넣었는지 확인하세요.');
+    // 자격 증명이 전혀 없으면(Cloud Run·에뮬레이터도 아님) 서버가 죽지 않도록 SQLite로 대체
+    const ambient = !!(env.K_SERVICE || env.GOOGLE_APPLICATION_CREDENTIALS || env.FIRESTORE_EMULATOR_HOST);
+    if (sa || ambient) return FirestoreStore.open({ projectId: env.FIRESTORE_PROJECT_ID || env.GOOGLE_CLOUD_PROJECT, prefix: env.FIRESTORE_PREFIX, serviceAccount: sa });
+    console.error('⚠ STORE=firestore 이지만 자격 증명(FIREBASE_SERVICE_ACCOUNT)이 없어 SQLite를 씁니다. 서버가 재시작되면 계정이 초기화됩니다.');
+    return SqliteStore.open(env.DB_PATH ?? defaultDbPath);
+  }
   if (kind !== 'sqlite') throw new Error(`알 수 없는 STORE 값: ${env.STORE} (sqlite 또는 firestore)`);
   return SqliteStore.open(env.DB_PATH ?? defaultDbPath);
 }
