@@ -14,15 +14,16 @@ export class LocalServer implements GameTransport {
   private next = 0;
   you: number;
   roster: RosterEntry[];
-  mode: 'practice' | 'demo';
+  mode: 'practice' | 'demo' | 'solo';
   seed: number;
   ended = false;
 
-  constructor(mode: 'practice' | 'demo', heroId: HeroId, cos: Cosmetic = DEFAULT_COSMETIC, name = '나') {
+  constructor(mode: 'practice' | 'demo' | 'solo', heroId: HeroId, cos: Cosmetic = DEFAULT_COSMETIC, name = '나', botLevel = 1) {
     this.mode = mode;
     this.seed = (Math.random() * 1e9) | 0;
     const rng = new Rng(this.seed);
-    const players = mode === 'practice'
+    const solo = [{ pid: 'me', name, heroId, isBot: false, botLevel: 1, cos }, ...Array.from({ length: 9 }, (_, i) => ({ pid: 'b' + i, name: botName(() => rng.next()), heroId: rng.pick(HERO_IDS), isBot: true, botLevel, cos: { ...DEFAULT_COSMETIC, palette: rng.int(0, 4), skin: rng.int(0, 2) } }))];
+    const players = mode === 'solo' ? solo : mode === 'practice'
       ? [{ pid: 'me', name, heroId, isBot: false, botLevel: 1, cos }, ...[0, 1, 2, 3].map(i => ({ pid: 'd' + i, name: `허수아비 ${i + 1}`, heroId: HERO_IDS[(i * 3 + 1) % 8], isBot: true, botLevel: 0, dummy: true, cos: { ...DEFAULT_COSMETIC } }))]
       : Array.from({ length: 10 }, (_, i) => ({ pid: 'b' + i, name: botName(() => rng.next()), heroId: rng.pick(HERO_IDS), isBot: true, botLevel: 1 + (i % 2), cos: { ...DEFAULT_COSMETIC, palette: rng.int(0, 4), skin: rng.int(0, 2) } }));
     this.match = new Match({ seed: this.seed, mode: mode === 'practice' ? 'practice' : 'br', players });
@@ -62,7 +63,7 @@ export class LocalServer implements GameTransport {
 
   stop() { clearTimeout(this.timer); }
 
-  sendBinary(d: Uint8Array) { if (this.mode === 'practice') this.host.receiveBinary(1, d); }
+  sendBinary(d: Uint8Array) { if (this.mode !== 'demo') this.host.receiveBinary(1, d); }
 
   send(m: ClientMsg) {
     const h = this.match.w.hero(1)!;

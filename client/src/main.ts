@@ -40,6 +40,9 @@ class App {
   private last = performance.now();
   private rebinding: string | null = null;
   private ignoreClickUntil = 0;
+  private lastSolo: HeroId | null = null;
+  private soloLevel = 1;
+  readonly offline = !!import.meta.env.VITE_OFFLINE;
   private scoreHeld = false;
 
   constructor() {
@@ -79,7 +82,7 @@ class App {
     this.conn.onClose = () => { this.serverOk = false; if (this.screen === 'lobby') this.render(); };
     this.conn.onJson = m => this.onServer(m as ServerMsg);
     this.conn.onBinary = d => { if (this.match && !this.match.local) this.match.game.handleBinary(d); };
-    this.conn.connect();
+    if (!this.offline) this.conn.connect();
   }
 
   private onServer(m: ServerMsg) {
@@ -162,12 +165,13 @@ class App {
     if (m.reconnect) toast('진행 중인 판으로 복귀했습니다!');
   }
 
-  startPractice(hero: HeroId) {
+  startPractice(hero: HeroId, solo = false) {
     this.endMatch();
     this.stopDemo();
+    this.lastSolo = solo ? hero : null;
     const cos = { palette: this.profile?.loadout.palette[hero] ?? 0, skin: this.profile?.loadout.skin[hero] ?? 0, kill: this.profile?.loadout.kill ?? 0, drop: this.profile?.loadout.drop ?? 0, title: 0, emotes: this.profile?.loadout.emotes ?? [0, 1] };
-    const local = new LocalServer('practice', hero, cos, this.profile?.name ?? '나');
-    const game = new ClientGame(local, { seed: local.seed, you: 1, roster: local.roster, mode: 'practice' }, this.input);
+    const local = new LocalServer(solo ? 'solo' : 'practice', hero, cos, this.profile?.name ?? storageGet('neon.name') ?? '나', this.soloLevel);
+    const game = new ClientGame(local, { seed: local.seed, you: 1, roster: local.roster, mode: solo ? 'br' : 'practice' }, this.input);
     local.onBinary = d => game.handleBinary(d);
     local.onJson = msg => { if ((msg as { type: string }).type === 'chat') this.match?.hud.addChat(String((msg as { from: string }).from), String((msg as { text: string }).text), !!(msg as { quick?: boolean }).quick); else this.onMatchMsg(msg as never); };
     this.beginMatch(game, local, local);
@@ -187,7 +191,7 @@ class App {
     const hud = new Hud(this.ui, game, this.r3, {
       pickAug: i => { transport.send({ type: 'pickAug', idx: i }); audio.play('ui'); },
       spectate: dir => this.cycleSpectate(dir),
-      toResults: () => { if (this.match?.results) this.showResults(); else if (!local) this.conn.send({ type: 'results' } as never); },
+      toResults: () => { if (this.match?.results || local) this.showResults(); else this.conn.send({ type: 'results' } as never); },
       chat: t => transport.send({ type: 'chat', text: t }),
       quick: i => transport.send({ type: 'quick', idx: i }),
       emote: i => transport.send({ type: 'emote', idx: i }),
@@ -253,7 +257,7 @@ class App {
       <table class="res-table"><tr><th>순위</th><th>플레이어</th><th>영웅</th><th>처치</th><th>피해</th></tr>${rows.map(r => `<tr class="${r.id === you ? 'me' : ''}"><td>${r.placement ? '#' + r.placement : '생존 중'}</td><td>${esc(r.name)}</td><td style="color:${hex(HERO_BY_ID[r.heroId].color)}">${HERO_BY_ID[r.heroId].name}</td><td>${r.kills}</td><td>${r.damage}</td></tr>`).join('')}</table>
       <div class="row" style="margin-top:16px;justify-content:flex-end">
         <span class="dim rematch-status"></span>
-        ${m.local ? '' : '<button class="btn pink big" data-act="rematch">한 판 더! (같은 사람들과)</button>'}
+        ${m.local ? (this.lastSolo ? '<button class="btn pink big" data-act="solo-again">한 판 더!</button>' : '') : '<button class="btn pink big" data-act="rematch">한 판 더! (같은 사람들과)</button>'}
         <button class="btn" data-act="leave-match">로비로</button>
       </div></div>`;
     this.ui.appendChild(ov);
@@ -420,7 +424,7 @@ class App {
       <div class="logo title-text glow-pink">네온 낙하<small>NEON DROP</small></div>
       <div class="lore">2099년, 메가시티 신서울의 버려진 구역. 기업이 생중계하는 불법 데스게임 <b class="glow-cyan">「드롭」</b>.<br>데이터 붕괴가 구역을 지워 나가는 동안, 최후의 1인만이 살아남는다.</div>
       <div class="row"><input class="field" id="nick" maxlength="12" placeholder="닉네임 (2~12자)" value="${esc(name)}" style="width:240px"><button class="btn pink big" data-act="start">드롭 입장</button></div>
-      <div class="dim" style="font-size:13px">${this.serverOk ? '● 서버 연결됨' : '○ 서버 연결 중… (연결되지 않아도 연습장은 이용 가능)'}${netSim.lag || netSim.loss ? ` · 네트워크 시뮬레이션: 지연 ${netSim.lag}ms 손실 ${netSim.loss}%` : ''}</div>
+      <div class="dim" style="font-size:13px">${this.offline ? '● 오프라인 체험판 — 봇전·연습장을 바로 플레이할 수 있습니다 (친구와 멀티플레이는 서버 배포 필요)' : this.serverOk ? '● 서버 연결됨' : '○ 서버 연결 중… (연결되지 않아도 봇전·연습장은 이용 가능)'}${netSim.lag || netSim.loss ? ` · 네트워크 시뮬레이션: 지연 ${netSim.lag}ms 손실 ${netSim.loss}%` : ''}</div>
     </div>`;
     setTimeout(() => (s.querySelector('#nick') as HTMLInputElement)?.addEventListener('keydown', e => { if (e.key === 'Enter') this.startFromTitle(); }), 0);
   }
@@ -445,6 +449,7 @@ class App {
         <div class="menu">
           <button class="btn pink" data-act="quick" ${this.serverOk ? '' : 'disabled'}>빠른 시작<small>20초 모집 · 빈자리는 봇</small></button>
           <button class="btn" data-act="room-menu" ${this.serverOk ? '' : 'disabled'}>사설 방<small>4자리 코드로 친구 초대</small></button>
+          <button class="btn pink" data-act="codex">혼자 하기 (봇전)<small>나 + 봇 9명 · 서버 없이 바로</small></button>
           <button class="btn" data-act="codex">영웅 도감<small>스킬 연습장</small></button>
           <button class="btn" data-act="shop" ${p ? '' : 'disabled'}>꾸미기 / 상점<small>네온 색상 · 스킨 · 효과</small></button>
           <button class="btn" data-act="profile" ${p ? '' : 'disabled'}>프로필</button>
@@ -647,7 +652,7 @@ class App {
       <div class="panel" style="padding:12px;font-size:13px"><b>전용 증강</b>${Object.values(AUGMENT_BY_ID).filter(a => a.hero === h.id).map(a => `<div style="margin-top:6px"><span class="aug-ic ${a.tier}" style="display:inline-grid;width:24px;height:24px;font-size:13px">${a.icon}</span> <b>${a.name}</b> <span class="dim">(${TIER_NAMES[a.tier]}) ${a.desc}</span></div>`).join('')}</div>
       <div class="row"><button class="btn ghost" data-act="lobby">돌아가기</button></div>
     </div><div class="grow"></div>
-    <div class="panel sub-panel" style="width:430px;min-width:0">${this.heroDetails(h)}<div class="row" style="margin-top:14px"><button class="btn pink big grow" data-act="practice">스킬 연습장 입장</button></div><div class="dim" style="font-size:12px;margin-top:6px">허수아비를 상대로 자유롭게 연습할 수 있습니다. 레벨업 버튼으로 증강도 시험해 보세요.</div></div>`;
+    <div class="panel sub-panel" style="width:430px;min-width:0">${this.heroDetails(h)}<div class="row" style="margin-top:14px"><button class="btn pink big grow" data-act="solo">봇전 시작</button><button class="btn big" data-act="practice">연습장</button></div><div class="row" style="margin-top:8px"><span class="dim" style="font-size:13px">봇 난이도</span>${BOT_LEVELS.map((b, i) => `<button class="tab ${this.soloLevel === i ? 'on' : ''}" data-sololevel="${i}">${b.name}</button>`).join('')}</div><div class="dim" style="font-size:12px;margin-top:6px">허수아비를 상대로 자유롭게 연습할 수 있습니다. 레벨업 버튼으로 증강도 시험해 보세요.</div></div>`;
     this.r3.showcase.setHero(h.index, this.profile?.loadout.palette[h.id] ?? 0, this.profile?.loadout.skin[h.id] ?? 0);
     this.r3.showcase.offsetX = 0.6;
     this.r3.showcase.setPreview(null);
@@ -681,6 +686,7 @@ class App {
       this.conn.send({ type: 'equip', kind: kind as 'palette', hero: kind === 'palette' || kind === 'skin' ? this.shopHero : undefined, idx: Number(idx) });
       audio.play('ui'); return;
     }
+    if (t.dataset.sololevel) { this.soloLevel = Number(t.dataset.sololevel); audio.play('ui'); this.render(); return; }
     if (t.dataset.quality) { settings.quality = t.dataset.quality as Quality; saveSettings(); this.r3.applyQuality(settings.quality); if (this.demo) this.startDemo(); this.render(); return; }
     if (t.dataset.rebind) { this.rebinding = this.rebinding === t.dataset.rebind ? null : t.dataset.rebind; this.refreshKeyUi(); return; }
     if (t.dataset.rebindDefault) { const r = bindKey(t.dataset.rebindDefault, DEFAULT_KEYS[t.dataset.rebindDefault]); if (r.swapped) toast(`「${actionLabel(r.swapped)}」의 키도 서로 바꿨습니다`); audio.play('ui'); this.refreshKeyUi(); return; }
@@ -703,6 +709,8 @@ class App {
       case 'settings': this.go('settings'); break;
       case 'lobby': this.go('lobby'); break;
       case 'practice': this.startPractice(this.codexHero); break;
+      case 'solo': this.startPractice(this.codexHero, true); break;
+      case 'solo-again': if (this.lastSolo) this.startPractice(this.lastSolo, true); break;
       case 'rematch': this.conn.send({ type: 'rematch' }); (actEl as HTMLButtonElement).disabled = true; (actEl as HTMLButtonElement).textContent = '재대결 대기 중…'; break;
       case 'leave-match': this.leaveMatch(); break;
       case 'esc-close': this.ui.querySelector('.overlay.esc')?.remove(); break;

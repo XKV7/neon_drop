@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "build:offline": "VITE_OFFLINE=1 vite build --base ./ --outDir dist-offline --emptyOutDir"
   },
   "dependencies": {
     "@neon/shared": "1.0.0",
