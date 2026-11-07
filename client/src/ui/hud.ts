@@ -45,6 +45,9 @@ export class Hud {
   private wheelHot = -1;
   private eliminatedInfo: { placement: number } | null = null;
   chatOpen = false;
+  /** 근처에 상호작용 가능한 대상이 있는지 (터치 버튼 표시용) */
+  canInteract = false;
+  get scoreboardOpen() { return !this.scoreEl.classList.contains('hidden'); }
 
   constructor(parent: HTMLElement, game: ClientGame, r3: Renderer3D, cb: HudCallbacks) {
     this.game = game; this.r3 = r3; this.cb = cb;
@@ -362,15 +365,16 @@ export class Hud {
         if (Math.hypot(v.x - self.x, v.y - self.y) < 2.3) { promptTxt = v.sub === 1 ? '기업 보급품 열기 (1.5초, 피격 시 취소)' : '회복 자판기 사용 (체력 40%)'; break; }
       }
     }
+    this.canInteract = !!promptTxt;
     this.prompt.classList.toggle('hidden', !promptTxt || self.channelProg > 0);
-    if (promptTxt) this.setHtml(this.prompt, `<span class="k">${keyLabel(settings.keys.interact)}</span>${promptTxt}`);
+    if (promptTxt) this.setHtml(this.prompt, `<span class="k">${document.body.classList.contains('touch') ? 'F 버튼' : keyLabel(settings.keys.interact)}</span>${promptTxt}`);
     this.channel.classList.toggle('hidden', self.channelProg <= 0);
     if (self.channelProg > 0) (this.channel.firstChild as HTMLElement).style.width = (self.channelProg / 255) * 100 + '%';
 
     // 낙하 안내
     const dropping = match.phase === 0 && self.state === 0 && g.mode !== 'practice';
     this.dropHint.classList.toggle('hidden', !dropping);
-    if (dropping) this.setHtml(this.dropHint, `<div class="big glow-cyan">낙하 지점을 클릭하세요</div><div class="dim">수송 드론 출발까지 ${Math.max(0, Math.ceil(DROP_PHASE_SEC - t))}초 · 원하는 위치를 클릭하면 바로 낙하합니다</div>`);
+    if (dropping) this.setHtml(this.dropHint, `<div class="big glow-cyan">낙하 지점을 ${document.body.classList.contains('touch') ? '탭' : '클릭'}하세요</div><div class="dim">수송 드론 출발까지 ${Math.max(0, Math.ceil(DROP_PHASE_SEC - t))}초 · 원하는 위치를 ${document.body.classList.contains('touch') ? '탭' : '클릭'}하면 바로 낙하합니다</div>`);
 
     // 관전
     const dead = self.state === 3;

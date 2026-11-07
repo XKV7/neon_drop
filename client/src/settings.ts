@@ -3,6 +3,8 @@ export type Quality = 'low' | 'mid' | 'high';
 export interface Settings {
   quality: Quality; master: number; music: number; sfx: number; smartCast: boolean; shake: boolean; dmgNumbers: boolean; chat: boolean;
   keys: Record<string, string>;
+  /** 터치 조작 표시: 자동(터치 기기면 켬) / 켜기 / 끄기 */
+  touchMode: 'auto' | 'on' | 'off';
 }
 
 export const ACTIONS: { id: string; label: string; group: string }[] = [
@@ -46,7 +48,7 @@ export function guessQuality(): Quality {
 }
 
 export const settings: Settings = {
-  quality: guessQuality(), master: 0.8, music: 0.5, sfx: 0.8, smartCast: true, shake: true, dmgNumbers: true, chat: true, keys: { ...DEFAULT_KEYS },
+  quality: guessQuality(), master: 0.8, music: 0.5, sfx: 0.8, smartCast: true, shake: true, dmgNumbers: true, chat: true, keys: { ...DEFAULT_KEYS }, touchMode: 'auto',
 };
 
 export function storageGet(key: string): string | null {

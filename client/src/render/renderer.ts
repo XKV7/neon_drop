@@ -68,8 +68,11 @@ export class Showcase {
   update(dt: number, aspect: number) {
     const cam = this.camera;
     cam.aspect = aspect; cam.updateProjectionMatrix();
-    cam.position.set(this.offsetX * -1, 3.0, 11.5);
-    cam.lookAt(this.offsetX * -1, 1.35, 0);
+    const narrow = aspect < 1.1;
+    const ox = narrow ? 0 : this.offsetX;
+    cam.fov = narrow ? 40 : 32; cam.updateProjectionMatrix();
+    cam.position.set(ox * -1, 3.0, narrow ? 13 : 11.5);
+    cam.lookAt(ox * -1, narrow ? 1.0 : 1.35, 0);
     if (!this.rig || !this.anim) return;
     if (!this.dragging) this.spin += dt * 0.4;
     const sk = this.previewSkill;

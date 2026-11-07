@@ -83,6 +83,24 @@ URL에 `?lag=120&loss=5`처럼 붙이면 인위적인 지연(왕복 ms, 편도�
 | **마우스 휠** | 약간의 줌 |
 | **F3** | 디버그 오버레이 (FPS, 핑, 서버 틱, 보정 횟수, 패킷 크기, 히트박스 표시) |
 
+### 휴대폰·태블릿 (터치)
+
+터치 기기에서는 자동으로 터치 조작이 켜집니다(설정 → 터치 조작: 자동/켜기/끄기).
+
+| 터치 | 동작 |
+|---|---|
+| 화면 왼쪽 아무 곳 누르고 끌기 | 이동 조이스틱 |
+| 오른쪽 아래 큰 버튼 | 기본 공격 (누르고 있으면 연속, 가까운 적 자동 조준, 끌면 직접 조준) |
+| 스킬·궁극기 버튼 **탭** | 가장 가까운 적에게 자동 조준해 시전 |
+| 스킬·궁극기 버튼 **끌기 → 떼기** | 끈 방향으로 조준 후 시전 (범위 표시, 지점형 스킬은 끈 길이로 거리 조절). 위쪽 ✕ 위에서 떼면 취소 |
+| ↻ / F 버튼 | 구르기 / 상호작용 (근처에 자판기·보급품이 있을 때 나타남) |
+| 빈 곳 탭 | 그 방향으로 기본 공격 (낙하 단계에서는 낙하 지점 선택) |
+| 왼쪽 위 ☰ ≡ ✉ ☺ | 메뉴 / 점수판 / 채팅 / 퀵 채팅·감정 표현 |
+
+가로 화면을 권장합니다(세로에서는 카메라를 조금 멀리 잡고 안내가 뜹니다). 타이틀·로비의 **⛶ 전체 화면** 버튼은 지원 브라우저에서 전체 화면 + 가로 고정을 시도합니다. 노치·홈 바 영역은 비워 두고 배치합니다.
+
+### 공통
+
 - **스마트 시전** (설정): 켜면 키를 누르는 즉시 시전(키를 누르고 있는 동안 범위 표시), 끄면 키를 눌러 범위를 확인한 뒤 좌클릭으로 시전합니다. 레일의 차지 사격처럼 충전형 스킬은 항상 누르고 있다가 떼면 발사됩니다.
 - **키 설정**: 로비의 *설정* 또는 게임 중 **Esc → 키 설정**에서 모든 동작(이동·공격·스킬·구르기·상호작용·점수판·채팅·퀵 채팅)을 키보드 키나 마우스 버튼(좌/우/휠/4/5)으로 바꿀 수 있습니다. 이미 쓰이는 키를 고르면 두 동작의 키가 서로 바뀌고, 항목별 *기본값* 버튼과 *전체 초기화*가 있습니다. Esc·F3·1~3(증강 선택)은 고정 키입니다. 설정은 브라우저에 저장되며, 바꾼 키는 HUD 스킬바와 영웅 선택 화면에 바로 반영됩니다.
 
@@ -460,6 +478,29 @@ Firebase Hosting은 정적 파일만 서빙하고 Cloud Functions는 WebSocket�
 - 아무도 접속하지 않으면 Cloud Run 인스턴스가 0개로 내려가 비용이 들지 않고, 다음 접속 때 몇 초 안에 다시 켜집니다. 항상 켜 두려면 스크립트의 `--min-instances 0`을 `1`로 바꾸세요(상시 과금).
 - Cloud Run의 WebSocket 연결은 최대 60분 뒤 끊기지만 클라이언트가 자동으로 다시 접속하고, 판 도중이면 20초 재접속 규칙으로 같은 판에 복귀합니다.
 - 로컬에서 Firestore 저장소 확인: `npx firebase-tools emulators:start --only firestore --project demo-neon` 실행 후 `FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 STORE=firestore FIRESTORE_PROJECT_ID=demo-neon npm start`. 같은 환경 변수로 `npm test`를 돌리면 Firestore 저장소 테스트도 실행됩니다.
+
+### 깃허브로 자동 배포 (GitHub Actions)
+
+위 단계를 한 번 손으로 하지 않아도, 저장소 설정만 해 두면 **`main`에 푸시할 때마다** 테스트 → Cloud Run 서버 → Firebase Hosting + Firestore 규칙이 자동으로 배포됩니다 (`.github/workflows/deploy-firebase.yml`). 게임 서버 자체는 GitHub에서 돌릴 수 없으므로 실행 위치는 여전히 Firebase/Cloud Run이고, GitHub은 배포를 대신 해 줍니다.
+
+1. 위 Firebase 절의 1~3단계(프로젝트 생성, Blaze 요금제, API 사용 설정, Firestore 생성)는 처음 한 번 필요합니다.
+2. **배포용 서비스 계정 만들기** (Google Cloud 콘솔 → IAM → 서비스 계정): 다음 역할을 줍니다.
+   `Cloud Run 관리자`, `Cloud Build 편집자`, `Artifact Registry 관리자`, `서비스 계정 사용자`, `스토리지 관리자`, `Firebase 호스팅 관리자`, `Firebase 규칙 관리자`, `서비스 사용량 소비자`
+   그 계정의 **키(JSON)** 를 하나 만들어 내려받습니다.
+3. **깃허브 저장소 설정** (Settings → Secrets and variables → Actions)
+   - Variables: `GCP_PROJECT_ID` = Firebase 프로젝트 ID
+   - Secrets: `GCP_SA_KEY` = 2번의 JSON 내용 전체
+4. `main`에 푸시하거나 Actions 탭에서 **Firebase 배포 → Run workflow**. 실행 요약에 게임 주소와 서버 상태 주소가 나옵니다.
+
+`GCP_PROJECT_ID`가 없으면 이 워크플로는 건너뜁니다. 키 파일 대신 Workload Identity Federation을 쓰려면 `google-github-actions/auth` 단계의 `credentials_json`을 `workload_identity_provider` / `service_account`로 바꾸면 됩니다.
+
+### GitHub Pages로 올리기 (`.github/workflows/pages.yml`)
+
+저장소 Settings → Pages → Source를 **GitHub Actions**로 바꾸면 `main` 푸시마다 `https://<아이디>.github.io/<저장소>/`에 클라이언트가 올라갑니다.
+- 기본: 서버 없이 되는 **체험판**(혼자 하기 봇전 + 연습장)
+- 변수 `SERVER_URL`에 Cloud Run 서버 주소를 넣으면 **멀티플레이 정식 버전**. 이때 서버가 그 페이지를 허용하도록 변수 `EXTRA_ORIGINS`에 `https://<아이디>.github.io`를 넣고 Firebase 배포를 다시 실행하세요.
+
+`.github/workflows/ci.yml`은 PR과 `main` 푸시마다 타입 검사·테스트·빌드·축소 밸런스 시뮬레이션을 돌립니다.
 
 ## 8. 배포 — Fly.io (서버 하나로 전부)
 

@@ -12,3 +12,4 @@ client/.env.production
 .firebase/
 firebase-debug.log
 firestore-debug.log
+pages-dist

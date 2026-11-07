@@ -96,7 +96,7 @@ export function processCastInput(w: World, h: Hero) {
   if (h.queued) { h.queued.t--; if (h.queued.t <= 0) h.queued = null; }
   if (want >= 0) {
     if (canCastNow(h, want)) { h.queued = null; startCast(w, h, want, inp.ax, inp.ay); return; }
-    if (isBusy(h) && slotReady(h, want)) h.queued = { slot: want, t: 9 };
+    if (isBusy(h) && slotReady(h, want)) h.queued = { slot: want, t: 15 };
     return;
   }
   if ((inp.held & SLOT_BTN[0]) && canCastNow(h, 0)) startCast(w, h, 0, inp.ax, inp.ay);

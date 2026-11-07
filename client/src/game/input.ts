@@ -1,5 +1,6 @@
 import { Btn } from '@neon/shared';
 import { settings } from '../settings';
+import type { TouchControls } from './touch';
 
 /** 키보드/마우스 상태와 스마트 시전 처리 */
 export class Input {
@@ -11,6 +12,8 @@ export class Input {
   aiming = -1;
   enabled = true;
   onKey: (code: string, e: KeyboardEvent) => boolean = () => false;
+  /** 터치 조작 (모바일) */
+  touch: TouchControls | null = null;
   private el: HTMLElement;
 
   constructor(el: HTMLElement) {
@@ -93,6 +96,7 @@ export class Input {
 
   moveVector(): { x: number; y: number } {
     if (!this.enabled) return { x: 0, y: 0 };
+    if (this.touch?.enabled && this.touch.joyActive) return { ...this.touch.move };
     let x = 0, y = 0;
     if (this.isDown('left')) x -= 1;
     if (this.isDown('right')) x += 1;
@@ -113,8 +117,12 @@ export class Input {
       if (this.isDown('ult')) held |= Btn.Ult;
     }
     if (!this.isDown('basic')) this.suppressBasic = false;
-    const pressed = this.latched;
+    let pressed = this.latched;
     this.latched = 0;
+    if (this.touch?.enabled) {
+      const t = this.touch.consume();
+      if (this.enabled) { held |= t.held; pressed |= t.pressed; }
+    }
     return { held: held | (pressed & (Btn.S1 | Btn.S2 | Btn.S3 | Btn.Ult)), pressed };
   }
 

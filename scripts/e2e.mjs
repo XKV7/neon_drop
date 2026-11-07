@@ -99,7 +99,10 @@ async function run(query, shots) {
   const gotA = await walkToCore(A);
   await walkToCore(B);
   if (gotA) {
-    await A.waitForSelector('.aug-card', { timeout: 5000 });
+    await A.waitForSelector('.aug-card', { timeout: 5000 }).catch(async e => {
+      console.log('  진단:', await A.evaluate(() => JSON.stringify({ state: window.__neon.match?.game.selfState, offer: !!window.__neon.match?.hud.offer, cards: document.querySelectorAll('.aug-card').length, augs: window.__neon.match?.augments, hp: window.__neon.match?.game.view.get(window.__neon.match.game.you)?.hp })));
+      throw e;
+    });
     if (shots) await A.screenshot({ path: join(shotsDir, '4-augment.jpg'), type: 'jpeg', quality: 82 });
     await A.keyboard.press('Digit1');
     await A.waitForFunction(() => window.__neon.match.augments.length > 0, null, { timeout: 5000 });
@@ -136,10 +139,10 @@ async function run(query, shots) {
   for (let round = 0; round < 5; round++) {
     const [ya, yb] = await Promise.all([A.evaluate(() => window.__neon.match.game.you), B.evaluate(() => window.__neon.match.game.you)]);
     await Promise.all([act(A, yb), act(B, ya)]);
-    // 정지 후 동기화 확인: 300ms 간격 두 번 측정해 멈춰 있는 상태만 비교 (보간 지연 이후)
+    // 정지 후 동기화 확인: 700ms 간격 두 번 측정해 멈춰 있는 상태만 비교 (보간 지연 이후)
     await sleep(600);
     const [a1, b1] = await Promise.all([snap(A), snap(B)]);
-    await sleep(300);
+    await sleep(700);
     const [sa, sb] = await Promise.all([snap(A), snap(B)]);
     if (sa && sb && a1 && b1) {
       for (const [me, prev, other] of [[sa, a1, sb], [sb, b1, sa]]) {
@@ -169,8 +172,9 @@ async function run(query, shots) {
   for (const page of [A, B]) {
     const hasOverlay = await page.evaluate(() => !!document.querySelector('.overlay.res'));
     if (!hasOverlay) {
+      // 결과창이 자동으로 뜨는 중일 수 있으므로 클릭 실패는 무시하고 결과창을 기다린다
       const btn = await page.$('[data-a=res]');
-      if (btn) await btn.click();
+      if (btn) await btn.click({ timeout: 3000 }).catch(() => {});
       await page.waitForSelector('.overlay.res', { timeout: 120000 });
     }
   }

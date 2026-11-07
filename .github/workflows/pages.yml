@@ -1,0 +1,55 @@
+# GitHub Pages로 클라이언트를 배포한다.
+# - 변수 SERVER_URL 이 없으면: 서버 없이 되는 체험판 (혼자 하기 봇전 + 연습장)
+# - 변수 SERVER_URL 에 Cloud Run 서버 주소를 넣으면: 친구와 멀티플레이 가능한 정식 버전
+#   (이때 서버의 ALLOWED_ORIGINS 에 https://<아이디>.github.io 를 추가해야 합니다)
+# 처음 한 번: 저장소 Settings → Pages → Source 를 "GitHub Actions" 로 지정
+name: GitHub Pages 배포
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 클라이언트 빌드
+        env:
+          SERVER_URL: ${{ vars.SERVER_URL }}
+        run: |
+          cd client
+          if [ -n "$SERVER_URL" ]; then
+            VITE_SERVER_URL="$SERVER_URL" npx vite build --base ./ --outDir ../pages-dist --emptyOutDir
+          else
+            VITE_OFFLINE=1 npx vite build --base ./ --outDir ../pages-dist --emptyOutDir
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

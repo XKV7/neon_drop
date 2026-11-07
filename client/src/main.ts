@@ -7,6 +7,8 @@ import { Connection, type GameTransport } from './net/connection';
 import { LocalServer } from './net/local';
 import { ClientGame } from './game/clientGame';
 import { Input } from './game/input';
+import { TouchControls, prefersTouch } from './game/touch';
+import { EntType, HF, type SkillDef as SkDef } from '@neon/shared';
 import { Renderer3D } from './render/renderer';
 import { WorldView } from './render/worldView';
 import { Hud } from './ui/hud';
@@ -41,6 +43,10 @@ class App {
   private rebinding: string | null = null;
   private ignoreClickUntil = 0;
   private lastSolo: HeroId | null = null;
+  private touch: TouchControls | null = null;
+  /** 터치 입력을 실제로 쓴 적이 있는지 (자동 모드 판단) */
+  private touchSeen = prefersTouch();
+  private stickyAim: { x: number; y: number; until: number } | null = null;
   private soloLevel = 1;
   readonly offline = !!import.meta.env.VITE_OFFLINE;
   private scoreHeld = false;
@@ -53,7 +59,11 @@ class App {
     this.input.enabled = false;
     this.input.onKey = (code, e) => this.onKey(code, e);
     window.addEventListener('keyup', e => this.onKeyUp(e.code));
-    document.addEventListener('pointerdown', () => { audio.init(); audio.applyVolumes(); music.start(); }, { capture: true });
+    document.addEventListener('pointerdown', e => {
+      audio.init(); audio.applyVolumes(); music.start();
+      if (e.pointerType === 'touch' && !this.touchSeen) { this.touchSeen = true; this.syncTouch(); }
+    }, { capture: true });
+    document.body.classList.toggle('coarse', prefersTouch());
     this.ui.addEventListener('click', e => this.onClick(e));
     // 키 재설정 중에는 마우스 버튼도 지정할 수 있다 (캡처 단계에서 가로챔)
     window.addEventListener('mousedown', e => {
@@ -199,6 +209,15 @@ class App {
       practice: w => local?.cheat(w),
     });
     this.match = { transport, game, world, hud, local, results: null, augments: [] };
+    this.touch = new TouchControls(this.ui, {
+      menu: () => this.toggleEscMenu(),
+      score: () => hud.showScoreboard(!hud.scoreboardOpen),
+      chat: () => hud.openChat(),
+      wheel: () => hud.toggleWheel(!hud.wheelOpen),
+    });
+    this.touch.setSkills(game.mySkills());
+    this.input.touch = this.touch;
+    this.syncTouch();
     this.input.isChargeSlot = slot => !!game.mySkills()[slot]?.chargeUp;
     this.input.enabled = true;
     this.r3.world = world; this.r3.mode = 'world';
@@ -222,6 +241,7 @@ class App {
     this.match.local?.stop();
     this.match.world.dispose();
     this.match.hud.destroy();
+    this.touch?.destroy(); this.touch = null; this.input.touch = null;
     this.match = null;
     this.r3.world = null;
     this.input.enabled = false;
@@ -339,6 +359,69 @@ class App {
     this.ui.appendChild(ov);
   }
 
+  /** 전체 화면 (모바일은 가로로 고정 시도) */
+  private toggleFullscreen() {
+    if (document.fullscreenElement) { void document.exitFullscreen(); return; }
+    document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).then(() => {
+      const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+      o?.lock?.('landscape').catch(() => {});
+    }).catch(() => toast('이 브라우저에서는 전체 화면을 쓸 수 없습니다'));
+  }
+
+  /** 터치 조작 켜기/끄기 (설정 + 기기 판단) */
+  syncTouch() {
+    const on = settings.touchMode === 'on' || (settings.touchMode === 'auto' && this.touchSeen);
+    document.body.classList.toggle('coarse', on);
+    this.touch?.setEnabled(on && !!this.match);
+  }
+
+  /** 가장 가까운 보이는 적 (자동 조준) */
+  private autoTarget(g: ClientGame, range: number): { x: number; y: number } | null {
+    const me = g.view.get(g.you);
+    if (!me) return null;
+    let best: { x: number; y: number } | null = null, bd = range;
+    for (const v of g.view.values()) {
+      if (v.id === g.you) continue;
+      if (v.type !== EntType.Hero && v.type !== EntType.Neutral) continue;
+      if (v.type === EntType.Hero && (v.flags & (HF.Landing | HF.Untarget))) continue;
+      const d = Math.hypot(v.x - me.x, v.y - me.y) + (v.type === EntType.Neutral ? 3 : 0);
+      if (d < bd) { bd = d; best = { x: v.x, y: v.y }; }
+    }
+    return best;
+  }
+
+  /** 터치 조준: 드래그 방향 / 빈 곳 탭 / 자동 조준 */
+  private touchAim(g: ClientGame) {
+    const t = this.touch!;
+    const now = performance.now();
+    if (t.tap) {
+      const p = this.r3.screenToGround(t.tap.x, t.tap.y);
+      t.tap = null;
+      this.stickyAim = { x: p.x, y: p.y, until: now + 120 };
+      t.latchBasic();
+    }
+    if (this.stickyAim && now < this.stickyAim.until) { g.aimX = this.stickyAim.x; g.aimY = this.stickyAim.y; return; }
+    this.stickyAim = null;
+    const me = g.view.get(g.you);
+    if (!me) return;
+    const skills = g.mySkills();
+    const av = t.aimVector();
+    if (av && av.manual) {
+      const def: SkDef = skills[av.slot];
+      // 화면 방향 → 월드 방향 (카메라는 회전하지 않으므로 화면 오른쪽 = +x, 아래 = +y)
+      const dist = def.target === 'point' ? Math.max(1.5, av.k * def.range) : Math.max(3, def.range);
+      g.aimX = me.x + av.dx * dist; g.aimY = me.y + av.dy * dist;
+      return;
+    }
+    const range = av ? skills[av.slot].range + 2 : 13;
+    const tgt = this.autoTarget(g, Math.max(9, range));
+    if (tgt) { g.aimX = tgt.x; g.aimY = tgt.y; return; }
+    // 대상이 없으면 이동 방향을 바라본다
+    const mv = t.move;
+    if (Math.hypot(mv.x, mv.y) > 0.2) { g.aimX = me.x + mv.x * 4; g.aimY = me.y + mv.y * 4; }
+    else if (Math.abs(g.aimX - me.x) + Math.abs(g.aimY - me.y) < 0.01) { g.aimX = me.x + Math.cos(me.a) * 4; g.aimY = me.y + Math.sin(me.a) * 4; }
+  }
+
   private onKeyUp(code: string) {
     const m = this.match;
     if (!m) return;
@@ -353,8 +436,8 @@ class App {
     const m = this.match;
     if (m) {
       const g = m.game;
-      const p = this.r3.screenToGround(this.input.mouseX, this.input.mouseY);
-      g.aimX = p.x; g.aimY = p.y;
+      if (this.touch?.enabled) this.touchAim(g);
+      else { const p = this.r3.screenToGround(this.input.mouseX, this.input.mouseY); g.aimX = p.x; g.aimY = p.y; }
       const wheel = this.input.takeWheel();
       if (wheel) m.world.zoom = Math.max(0.78, Math.min(1.3, m.world.zoom + wheel * 0.06));
       // 낙하 단계에는 넓게 보기
@@ -367,9 +450,11 @@ class App {
       const heldSlot = settings.smartCast ? (['s1', 's2', 's3', 'ult'].findIndex(a => this.input.isDown(a)) + 1 || -1) : -1;
       if (this.input.aiming >= 0 && g.selfState === 2) m.world.setAim(this.input.aiming, skills[this.input.aiming], g.aimX, g.aimY);
       else if (heldSlot > 0 && g.selfState === 2) m.world.setAim(heldSlot, skills[heldSlot], g.aimX, g.aimY);
+      else if (this.touch?.drag?.moved && this.touch.drag.slot > 0 && g.selfState === 2) m.world.setAim(this.touch.drag.slot, skills[this.touch.drag.slot], g.aimX, g.aimY);
       else if (g.selfState === 2 && (g.self?.castSlot ?? 255) !== 255 && g.self!.chargeProg > 0) m.world.setAim(g.self!.castSlot, skills[g.self!.castSlot], g.aimX, g.aimY);
       else m.world.setAim(-1, null, 0, 0);
       m.hud.update();
+      if (this.touch?.enabled && g.self) { const me = g.view.get(g.you); this.touch.update(g.self, !!me && (me.flags & HF.Silence) !== 0, m.hud.canInteract); }
       if (g.match) {
         const frac = 1 - g.match.alive / Math.max(1, g.match.total);
         music.intensity = frac;
@@ -423,7 +508,8 @@ class App {
     s.innerHTML = `<div class="title-wrap">
       <div class="logo title-text glow-pink">네온 낙하<small>NEON DROP</small></div>
       <div class="lore">2099년, 메가시티 신서울의 버려진 구역. 기업이 생중계하는 불법 데스게임 <b class="glow-cyan">「드롭」</b>.<br>데이터 붕괴가 구역을 지워 나가는 동안, 최후의 1인만이 살아남는다.</div>
-      <div class="row"><input class="field" id="nick" maxlength="12" placeholder="닉네임 (2~12자)" value="${esc(name)}" style="width:240px"><button class="btn pink big" data-act="start">드롭 입장</button></div>
+      <div class="row title-row"><input class="field" id="nick" maxlength="12" placeholder="닉네임 (2~12자)" value="${esc(name)}"><button class="btn pink big" data-act="start">드롭 입장</button></div>
+      ${document.fullscreenEnabled ? '<button class="btn small ghost" data-fullscreen>⛶ 전체 화면</button>' : ''}
       <div class="dim" style="font-size:13px">${this.offline ? '● 오프라인 체험판 — 봇전·연습장을 바로 플레이할 수 있습니다 (친구와 멀티플레이는 서버 배포 필요)' : this.serverOk ? '● 서버 연결됨' : '○ 서버 연결 중… (연결되지 않아도 봇전·연습장은 이용 가능)'}${netSim.lag || netSim.loss ? ` · 네트워크 시뮬레이션: 지연 ${netSim.lag}ms 손실 ${netSim.loss}%` : ''}</div>
     </div>`;
     setTimeout(() => (s.querySelector('#nick') as HTMLInputElement)?.addEventListener('keydown', e => { if (e.key === 'Enter') this.startFromTitle(); }), 0);
@@ -454,6 +540,7 @@ class App {
           <button class="btn" data-act="shop" ${p ? '' : 'disabled'}>꾸미기 / 상점<small>네온 색상 · 스킨 · 효과</small></button>
           <button class="btn" data-act="profile" ${p ? '' : 'disabled'}>프로필</button>
           <button class="btn ghost" data-act="settings">설정</button>
+          ${document.fullscreenEnabled ? '<button class="btn ghost small" data-fullscreen>⛶ 전체 화면</button>' : ''}
         </div>
       </div>
       <div class="grow"></div>
@@ -469,7 +556,7 @@ class App {
           <div class="row" style="margin-top:10px"><input class="field grow" id="roomCode" maxlength="4" placeholder="코드 4자리" inputmode="numeric"><button class="btn" data-act="join-room">참가</button></div>
         </div>
         <div class="panel profile-card" style="font-size:13px;line-height:1.7">
-          <b>조작</b> <button class="btn small ghost" data-act="settings" style="float:right;padding:2px 8px">변경</button><br><span class="dim">${['up', 'left', 'down', 'right'].map(a => esc(keyLabel(settings.keys[a]))).join('')} 이동 · 마우스 조준 · ${esc(keyLabel(settings.keys.basic))} 기본 공격<br>${['s1', 's2', 's3', 'ult'].map(a => esc(keyLabel(settings.keys[a]))).join('/')} 스킬 · ${esc(keyLabel(settings.keys.dodge))} 구르기 · ${esc(keyLabel(settings.keys.interact))} 상호작용<br>${esc(keyLabel(settings.keys.score))} 점수판 · ${esc(keyLabel(settings.keys.chat))} 채팅 · ${esc(keyLabel(settings.keys.wheel))} 퀵 채팅 · F3 디버그</span>
+          ${document.body.classList.contains('coarse') ? '<b>터치 조작</b><br><span class="dim">왼쪽 아무 곳: 이동 조이스틱 · 오른쪽 버튼: 공격/스킬<br>버튼을 탭하면 가까운 적에게 자동 조준, 끌면 직접 조준 후 떼면 시전 (✕로 끌어 취소)<br>빈 곳 탭: 그 방향으로 공격 · ↻ 구르기 · F 상호작용</span><br><br>' : ''}<b>조작</b> <button class="btn small ghost" data-act="settings" style="float:right;padding:2px 8px">변경</button><br><span class="dim">${['up', 'left', 'down', 'right'].map(a => esc(keyLabel(settings.keys[a]))).join('')} 이동 · 마우스 조준 · ${esc(keyLabel(settings.keys.basic))} 기본 공격<br>${['s1', 's2', 's3', 'ult'].map(a => esc(keyLabel(settings.keys[a]))).join('/')} 스킬 · ${esc(keyLabel(settings.keys.dodge))} 구르기 · ${esc(keyLabel(settings.keys.interact))} 상호작용<br>${esc(keyLabel(settings.keys.score))} 점수판 · ${esc(keyLabel(settings.keys.chat))} 채팅 · ${esc(keyLabel(settings.keys.wheel))} 퀵 채팅 · F3 디버그</span>
         </div>
       </div>`;
   }
@@ -543,6 +630,7 @@ class App {
     s.querySelectorAll('.skill-row').forEach(r => {
       r.addEventListener('mouseenter', () => { const h = HERO_BY_ID[id]; const i = Number((r as HTMLElement).dataset.skill); this.r3.showcase.setPreview([h.basic, ...h.skills, h.ult][i]); });
       r.addEventListener('mouseleave', () => this.r3.showcase.setPreview(null));
+      r.addEventListener('click', () => { const h = HERO_BY_ID[id]; const i = Number((r as HTMLElement).dataset.skill); this.r3.showcase.setPreview([h.basic, ...h.skills, h.ult][i]); s.querySelectorAll('.skill-row').forEach(x => x.classList.toggle('picked', x === r)); });
     });
   }
 
@@ -629,11 +717,12 @@ class App {
         <span>배경음악</span><input type="range" class="slider" min="0" max="1" step="0.05" value="${settings.music}" data-vol="music">
         <span>효과음</span><input type="range" class="slider" min="0" max="1" step="0.05" value="${settings.sfx}" data-vol="sfx">
         <span>스마트 시전</span><label class="row"><input type="checkbox" data-toggle="smartCast" ${settings.smartCast ? 'checked' : ''}> 키를 누르는 즉시 시전 (끄면 범위 확인 후 ${esc(keyLabel(settings.keys.basic))})</label>
+        <span>터치 조작</span><div class="row" style="flex-wrap:wrap">${(['auto', 'on', 'off'] as const).map(x => `<button class="tab ${settings.touchMode === x ? 'on' : ''}" data-touchmode="${x}">${{ auto: '자동', on: '켜기', off: '끄기' }[x]}</button>`).join('')}</div>
         <span>화면 흔들림</span><label class="row"><input type="checkbox" data-toggle="shake" ${settings.shake ? 'checked' : ''}> 사용</label>
         <span>데미지 숫자</span><label class="row"><input type="checkbox" data-toggle="dmgNumbers" ${settings.dmgNumbers ? 'checked' : ''}> 표시</label>
         <span>채팅</span><label class="row"><input type="checkbox" data-toggle="chat" ${settings.chat ? 'checked' : ''}> 전체 채팅 보기</label>
       </div>
-      <h3 style="margin-bottom:0">키 설정</h3>
+      <h3 style="margin-bottom:0">키 설정 <span class="dim" style="font-size:13px;font-weight:400">(키보드·마우스)</span></h3>
       <div class="keybinds">${this.keybindHtml()}</div>
       <div class="row" style="margin-top:14px"><button class="btn small ghost" data-act="reset-keys">키 전체 초기화</button><div class="grow"></div><button class="btn" data-act="lobby">돌아가기</button></div>
     </div>`;
@@ -686,6 +775,8 @@ class App {
       this.conn.send({ type: 'equip', kind: kind as 'palette', hero: kind === 'palette' || kind === 'skin' ? this.shopHero : undefined, idx: Number(idx) });
       audio.play('ui'); return;
     }
+    if (t.dataset.touchmode) { settings.touchMode = t.dataset.touchmode as 'auto'; saveSettings(); this.syncTouch(); audio.play('ui'); this.render(); return; }
+    if (t.dataset.fullscreen !== undefined) { this.toggleFullscreen(); return; }
     if (t.dataset.sololevel) { this.soloLevel = Number(t.dataset.sololevel); audio.play('ui'); this.render(); return; }
     if (t.dataset.quality) { settings.quality = t.dataset.quality as Quality; saveSettings(); this.r3.applyQuality(settings.quality); if (this.demo) this.startDemo(); this.render(); return; }
     if (t.dataset.rebind) { this.rebinding = this.rebinding === t.dataset.rebind ? null : t.dataset.rebind; this.refreshKeyUi(); return; }

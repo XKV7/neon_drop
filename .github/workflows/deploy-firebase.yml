@@ -1,0 +1,60 @@
+# main에 푸시하면 테스트 후 게임 서버(Cloud Run) + 클라이언트(Firebase Hosting) + Firestore 규칙을 배포한다.
+# 필요한 설정 (저장소 Settings → Secrets and variables → Actions):
+#   변수 GCP_PROJECT_ID      : Firebase 프로젝트 ID
+#   비밀 GCP_SA_KEY          : 배포용 서비스 계정 JSON 키  (README '깃허브로 자동 배포' 참고)
+#   (선택) 변수 GCP_REGION    : 기본 asia-northeast3 (서울)
+#   (선택) 변수 EXTRA_ORIGINS : 추가로 접속을 허용할 페이지 주소 (예: https://아이디.github.io)
+name: Firebase 배포
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-firebase
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.GCP_PROJECT_ID != '' }}
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION || 'asia-northeast3' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Google Cloud 인증
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: 게임 서버 배포 (Cloud Run)
+        run: |
+          ORIGINS="https://${PROJECT_ID}.web.app,https://${PROJECT_ID}.firebaseapp.com"
+          if [ -n "${{ vars.EXTRA_ORIGINS }}" ]; then ORIGINS="${ORIGINS},${{ vars.EXTRA_ORIGINS }}"; fi
+          ALLOWED_ORIGINS="$ORIGINS" bash scripts/deploy-cloudrun.sh
+          URL=$(gcloud run services describe neon-drop --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')
+          echo "VITE_SERVER_URL=$URL" > client/.env.production
+          echo "SERVER_URL=$URL" >> "$GITHUB_ENV"
+
+      - name: 서버 상태 확인
+        run: curl -fsS "$SERVER_URL/health"
+
+      - name: 클라이언트 + Firestore 규칙 배포 (Firebase Hosting)
+        run: npx --yes firebase-tools@15 deploy --only hosting,firestore --project "$PROJECT_ID" --non-interactive
+
+      - name: 결과
+        run: |
+          echo "### 배포 완료" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 게임 주소: https://${PROJECT_ID}.web.app" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 서버 상태: ${SERVER_URL}/health" >> "$GITHUB_STEP_SUMMARY"

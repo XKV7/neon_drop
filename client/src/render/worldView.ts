@@ -642,7 +642,8 @@ export class WorldView {
     this.shakeT += dt * 40;
     const sh = settings.shake ? this.shakeAmt : 0;
     const sx = (Math.sin(this.shakeT * 1.3) + Math.sin(this.shakeT * 2.7)) * sh * 0.5, sz = (Math.cos(this.shakeT * 1.7) + Math.sin(this.shakeT * 3.1)) * sh * 0.5;
-    const z = this.zoom;
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    const z = this.zoom * (aspect < 0.8 ? 1.4 : aspect < 1.3 ? 1.15 : 1);
     cam.position.set(this.camX + sx, 15 * z, this.camZ + 13 * z + sz);
     cam.lookAt(this.camX + sx, 0, this.camZ + sz);
   }

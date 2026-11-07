@@ -10,7 +10,7 @@ ORIGINS="${ALLOWED_ORIGINS:-https://${PROJECT_ID}.web.app,https://${PROJECT_ID}.
 # ALLOWED_ORIGINS 값에 쉼표가 있으므로 --set-env-vars 구분자를 | 로 바꾼다 (^|^ 접두어)
 # WebSocket 연결을 오래 유지하도록 요청 제한 시간 60분, 연결 사이에도 게임 루프가 돌도록 CPU 상시 할당
 gcloud run deploy "$SERVICE" \
-  --project "$PROJECT_ID" --region "$REGION" --source . \
+  --project "$PROJECT_ID" --region "$REGION" --source . --quiet \
   --allow-unauthenticated \
   --max-instances 1 --min-instances 0 \
   --concurrency 250 --timeout 3600 --session-affinity \
