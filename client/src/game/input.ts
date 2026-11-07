@@ -18,7 +18,9 @@ export class Input {
     window.addEventListener('keydown', e => this.keyDown(e));
     window.addEventListener('keyup', e => this.down.delete(e.code));
     el.addEventListener('mousedown', e => this.mouseDown(e));
-    window.addEventListener('mouseup', e => this.down.delete('Mouse' + e.button));
+    window.addEventListener('mouseup', e => { this.down.delete('Mouse' + e.button); if (e.button >= 3 && this.actionOf('Mouse' + e.button)) e.preventDefault(); });
+    // 마우스 4/5 버튼에 기능을 지정했을 때 브라우저 뒤로/앞으로 이동 방지
+    el.addEventListener('auxclick', e => { if (this.actionOf('Mouse' + e.button)) e.preventDefault(); });
     window.addEventListener('mousemove', e => { this.mouseX = e.clientX; this.mouseY = e.clientY; });
     el.addEventListener('contextmenu', e => e.preventDefault());
     el.addEventListener('wheel', e => { this.wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
@@ -35,7 +37,8 @@ export class Input {
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
     if (this.onKey(e.code, e)) { e.preventDefault(); return; }
     if (!this.enabled) return;
-    if (e.code === 'Tab' || e.code === 'Space' || e.code === 'F3') e.preventDefault();
+    // 게임 키로 쓰이는 키는 브라우저 기본 동작(스크롤, 포커스 이동 등)을 막는다
+    if (e.code === 'F3' || this.actionOf(e.code)) e.preventDefault();
     if (e.repeat) return;
     this.down.add(e.code);
     this.press(e.code);
@@ -45,8 +48,10 @@ export class Input {
     if (!this.enabled) return;
     const code = 'Mouse' + e.button;
     this.down.add(code);
-    if (e.button === 2 && this.aiming >= 0 && settings.keys.s1 !== 'Mouse2') { this.aiming = -1; return; }
-    if (e.button === 0 && this.aiming >= 0) {
+    if (e.button >= 1) e.preventDefault();
+    // 조준 중: 기본 공격 키(기본 좌클릭)로 확인, 기능이 없는 마우스 버튼(기본 우클릭)으로 취소
+    if (this.aiming >= 0 && code !== settings.keys.basic && !this.actionOf(code)) { this.aiming = -1; return; }
+    if (code === settings.keys.basic && this.aiming >= 0) {
       // 조준 확인
       this.latched |= [Btn.Basic, Btn.S1, Btn.S2, Btn.S3, Btn.Ult][this.aiming];
       this.aiming = -1;
@@ -61,6 +66,13 @@ export class Input {
   private press(code: string) {
     const a = this.actionOf(code);
     if (!a) return;
+    if (a === 'basic' && this.aiming >= 0) {
+      // 조준 확인 (기본 공격 키를 키보드에 지정한 경우)
+      this.latched |= [Btn.Basic, Btn.S1, Btn.S2, Btn.S3, Btn.Ult][this.aiming];
+      this.aiming = -1;
+      this.suppressBasic = true;
+      return;
+    }
     const slotMap: Record<string, number> = { s1: 1, s2: 2, s3: 3, ult: 4 };
     if (a in slotMap) {
       const slot = slotMap[a];

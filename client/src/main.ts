@@ -12,7 +12,7 @@ import { WorldView } from './render/worldView';
 import { Hud } from './ui/hud';
 import { el, esc, hex, stars, skillIcon, heroGlyph, toast, augTip } from './ui/util';
 import { audio, music } from './audio/audio';
-import { settings, loadSettings, saveSettings, storageGet, storageSet, keyLabel, ACTIONS, DEFAULT_KEYS, netSim, type Quality } from './settings';
+import { settings, loadSettings, saveSettings, storageGet, storageSet, keyLabel, ACTIONS, DEFAULT_KEYS, netSim, bindKey, actionLabel, type Quality } from './settings';
 
 type Screen = 'title' | 'lobby' | 'queue' | 'room' | 'select' | 'game' | 'shop' | 'profile' | 'settings' | 'codex';
 
@@ -39,6 +39,7 @@ class App {
   codexHero: HeroId = 'hammerdog';
   private last = performance.now();
   private rebinding: string | null = null;
+  private ignoreClickUntil = 0;
   private scoreHeld = false;
 
   constructor() {
@@ -51,6 +52,14 @@ class App {
     window.addEventListener('keyup', e => this.onKeyUp(e.code));
     document.addEventListener('pointerdown', () => { audio.init(); audio.applyVolumes(); music.start(); }, { capture: true });
     this.ui.addEventListener('click', e => this.onClick(e));
+    // 키 재설정 중에는 마우스 버튼도 지정할 수 있다 (캡처 단계에서 가로챔)
+    window.addEventListener('mousedown', e => {
+      if (!this.rebinding) return;
+      e.preventDefault(); e.stopPropagation();
+      this.ignoreClickUntil = performance.now() + 400;
+      this.finishRebind('Mouse' + e.button);
+    }, { capture: true });
+    window.addEventListener('contextmenu', e => { if (this.rebinding || performance.now() < this.ignoreClickUntil) e.preventDefault(); }, { capture: true });
     this.ui.addEventListener('mouseover', e => { const t = (e.target as HTMLElement).closest('.btn,.hero-card,.tab'); if (t && !(t as HTMLElement).dataset.hovered) { (t as HTMLElement).dataset.hovered = '1'; audio.play('uiHover'); setTimeout(() => delete (t as HTMLElement).dataset.hovered, 300); } });
     // 쇼케이스 드래그 회전
     let drag = false, lx = 0;
@@ -260,7 +269,9 @@ class App {
   // ───────────────── 입력 ─────────────────
   private onKey(code: string, e: KeyboardEvent): boolean {
     if (this.rebinding) {
-      settings.keys[this.rebinding] = code; this.rebinding = null; saveSettings(); this.render(); return true;
+      if (code === 'Escape') { this.rebinding = null; this.refreshKeyUi(); return true; }
+      this.finishRebind(code);
+      return true;
     }
     const m = this.match;
     if (code === 'F3') { if (m) m.hud.showDebug = !m.hud.showDebug; return true; }
@@ -269,7 +280,7 @@ class App {
     if (code === settings.keys.score) { if (!this.scoreHeld) { this.scoreHeld = true; m.hud.showScoreboard(true); } return true; }
     if (code === settings.keys.chat) { m.hud.openChat(); return true; }
     if (code === settings.keys.wheel && !e.repeat) { m.hud.toggleWheel(true); return true; }
-    if (code === 'Escape') { if (this.input.aiming >= 0) this.input.aiming = -1; else this.toggleEscMenu(); return true; }
+    if (code === 'Escape') { const ko = this.ui.querySelector('.overlay.keys'); if (ko) ko.remove(); else if (this.input.aiming >= 0) this.input.aiming = -1; else this.toggleEscMenu(); return true; }
     if (m.hud.offer && (code === 'Digit1' || code === 'Digit2' || code === 'Digit3')) { m.transport.send({ type: 'pickAug', idx: Number(code.slice(5)) - 1 }); audio.play('ui'); return true; }
     return false;
   }
@@ -280,7 +291,47 @@ class App {
     const local = !!this.match?.local;
     const ov = el('div', 'overlay esc');
     ov.innerHTML = `<div class="panel sub-panel" style="min-width:340px;text-align:center"><h2>일시 메뉴</h2><p class="dim" style="font-size:13px">${local ? '연습장은 언제든 나갈 수 있습니다.' : '게임은 계속 진행 중입니다. 나가면 캐릭터는 20초 뒤 탈락 처리됩니다.'}</p>
-      <div class="col"><button class="btn" data-act="esc-close">계속하기</button><button class="btn pink" data-act="leave-match">${local ? '연습장 나가기' : '판 나가기'}</button></div></div>`;
+      <div class="col"><button class="btn" data-act="esc-close">계속하기</button><button class="btn ghost" data-act="open-keys">키 설정</button><button class="btn pink" data-act="leave-match">${local ? '연습장 나가기' : '판 나가기'}</button></div></div>`;
+    this.ui.appendChild(ov);
+  }
+
+  // ───────────────── 키 설정 ─────────────────
+  private keybindHtml(): string {
+    const groups = [...new Set(ACTIONS.map(a => a.group))];
+    return `<div class="kgroups">` + groups.map(g => `<div class="kgroup"><h4>${g}</h4><div class="kv">${ACTIONS.filter(a => a.group === g).map(a => {
+      const code = settings.keys[a.id];
+      const changed = code !== DEFAULT_KEYS[a.id];
+      return `<span>${a.label}</span><div class="row" style="gap:6px"><button class="btn small ${this.rebinding === a.id ? 'pink' : 'ghost'} keybind" data-rebind="${a.id}">${this.rebinding === a.id ? '키 또는 마우스 버튼…' : esc(keyLabel(code))}</button>${changed ? `<button class="btn small ghost" data-rebind-default="${a.id}" title="기본값: ${esc(keyLabel(DEFAULT_KEYS[a.id]))}">기본값</button>` : ''}</div>`;
+    }).join('')}</div></div>`).join('') + `</div><p class="dim" style="font-size:12px;margin-top:10px">버튼을 누른 뒤 원하는 키나 마우스 버튼(좌/우/휠/4/5)을 누르세요. Esc로 취소합니다. 이미 쓰이는 키를 고르면 두 기능의 키가 서로 바뀝니다. Esc·F3·1~3(증강 선택)은 고정 키입니다.</p>`;
+  }
+
+  private finishRebind(code: string) {
+    const action = this.rebinding;
+    if (!action) return;
+    this.rebinding = null;
+    const r = bindKey(action, code);
+    if (!r.ok) { toast(r.reason ?? '지정할 수 없는 키입니다'); audio.play('error'); }
+    else {
+      audio.play('ui');
+      if (r.swapped) toast(`${keyLabel(code)} 키가 「${actionLabel(r.swapped)}」에서 쓰이고 있어 서로 바꿨습니다 (${actionLabel(r.swapped)} → ${keyLabel(settings.keys[r.swapped])})`);
+    }
+    this.refreshKeyUi();
+  }
+
+  /** 키 설정이 바뀌면 열려 있는 화면(설정, 게임 중 오버레이, HUD)을 갱신 */
+  private refreshKeyUi() {
+    const ov = this.ui.querySelector('.overlay.keys .keybinds');
+    if (ov) ov.innerHTML = this.keybindHtml();
+    this.match?.hud.refreshKeys();
+    if (this.screen === 'settings') this.render();
+  }
+
+  private openKeysOverlay() {
+    this.ui.querySelector('.overlay.esc')?.remove();
+    this.ui.querySelector('.overlay.keys')?.remove();
+    const ov = el('div', 'overlay keys');
+    ov.innerHTML = `<div class="panel sub-panel" style="width:min(860px,94vw)"><h2 style="margin-bottom:4px">키 설정</h2><div class="keybinds">${this.keybindHtml()}</div>
+      <div class="row" style="margin-top:14px"><button class="btn small ghost" data-act="reset-keys">전체 초기화</button><div class="grow"></div><button class="btn" data-act="close-keys">닫기</button></div></div>`;
     this.ui.appendChild(ov);
   }
 
@@ -321,7 +372,7 @@ class App {
         music.theme = g.match.alive <= 3 && g.mode !== 'practice' && g.match.phase === 1 ? 'final' : 'battle';
       }
       if (m.local && m.local.ended && !m.results && !this.ui.querySelector('.overlay.res')) { /* 연습장은 종료 없음 */ }
-      this.input.enabled = !m.hud.chatOpen && !m.hud.wheelOpen;
+      this.input.enabled = !m.hud.chatOpen && !m.hud.wheelOpen && !this.rebinding && !this.ui.querySelector('.overlay.keys');
     }
     if (this.demo && !m) {
       this.demo.game.update(dt * 1000);
@@ -413,7 +464,7 @@ class App {
           <div class="row" style="margin-top:10px"><input class="field grow" id="roomCode" maxlength="4" placeholder="코드 4자리" inputmode="numeric"><button class="btn" data-act="join-room">참가</button></div>
         </div>
         <div class="panel profile-card" style="font-size:13px;line-height:1.7">
-          <b>조작</b><br><span class="dim">WASD 이동 · 마우스 조준 · 좌클릭 기본 공격<br>우클릭/Q/E/R 스킬 · Space 구르기 · F 상호작용<br>Tab 점수판 · Enter 채팅 · T 퀵 채팅 · F3 디버그</span>
+          <b>조작</b> <button class="btn small ghost" data-act="settings" style="float:right;padding:2px 8px">변경</button><br><span class="dim">${['up', 'left', 'down', 'right'].map(a => esc(keyLabel(settings.keys[a]))).join('')} 이동 · 마우스 조준 · ${esc(keyLabel(settings.keys.basic))} 기본 공격<br>${['s1', 's2', 's3', 'ult'].map(a => esc(keyLabel(settings.keys[a]))).join('/')} 스킬 · ${esc(keyLabel(settings.keys.dodge))} 구르기 · ${esc(keyLabel(settings.keys.interact))} 상호작용<br>${esc(keyLabel(settings.keys.score))} 점수판 · ${esc(keyLabel(settings.keys.chat))} 채팅 · ${esc(keyLabel(settings.keys.wheel))} 퀵 채팅 · F3 디버그</span>
         </div>
       </div>`;
   }
@@ -572,14 +623,14 @@ class App {
         <span>전체 음량</span><input type="range" class="slider" min="0" max="1" step="0.05" value="${settings.master}" data-vol="master">
         <span>배경음악</span><input type="range" class="slider" min="0" max="1" step="0.05" value="${settings.music}" data-vol="music">
         <span>효과음</span><input type="range" class="slider" min="0" max="1" step="0.05" value="${settings.sfx}" data-vol="sfx">
-        <span>스마트 시전</span><label class="row"><input type="checkbox" data-toggle="smartCast" ${settings.smartCast ? 'checked' : ''}> 키를 누르는 즉시 시전 (끄면 범위 확인 후 좌클릭)</label>
+        <span>스마트 시전</span><label class="row"><input type="checkbox" data-toggle="smartCast" ${settings.smartCast ? 'checked' : ''}> 키를 누르는 즉시 시전 (끄면 범위 확인 후 ${esc(keyLabel(settings.keys.basic))})</label>
         <span>화면 흔들림</span><label class="row"><input type="checkbox" data-toggle="shake" ${settings.shake ? 'checked' : ''}> 사용</label>
         <span>데미지 숫자</span><label class="row"><input type="checkbox" data-toggle="dmgNumbers" ${settings.dmgNumbers ? 'checked' : ''}> 표시</label>
         <span>채팅</span><label class="row"><input type="checkbox" data-toggle="chat" ${settings.chat ? 'checked' : ''}> 전체 채팅 보기</label>
       </div>
-      <h3>키 설정</h3>
-      <div class="kv">${ACTIONS.map(a => `<span>${a.label}</span><button class="btn small ghost keybind" data-rebind="${a.id}">${this.rebinding === a.id ? '키를 누르세요…' : esc(keyLabel(settings.keys[a.id]))}</button>`).join('')}</div>
-      <div class="row" style="margin-top:14px"><button class="btn small ghost" data-act="reset-keys">키 초기화</button><div class="grow"></div><button class="btn" data-act="lobby">돌아가기</button></div>
+      <h3 style="margin-bottom:0">키 설정</h3>
+      <div class="keybinds">${this.keybindHtml()}</div>
+      <div class="row" style="margin-top:14px"><button class="btn small ghost" data-act="reset-keys">키 전체 초기화</button><div class="grow"></div><button class="btn" data-act="lobby">돌아가기</button></div>
     </div>`;
     setTimeout(() => {
       s.querySelectorAll('[data-vol]').forEach(i => i.addEventListener('input', () => { (settings as unknown as Record<string, number>)[(i as HTMLInputElement).dataset.vol!] = Number((i as HTMLInputElement).value); audio.applyVolumes(); saveSettings(); }));
@@ -605,6 +656,7 @@ class App {
 
   // ───────────────── 클릭 처리 ─────────────────
   private onClick(e: MouseEvent) {
+    if (performance.now() < this.ignoreClickUntil) return;
     const t = e.target as HTMLElement;
     const actEl = t.closest('[data-act]') as HTMLElement | null;
     const card = t.closest('[data-hero]') as HTMLElement | null;
@@ -630,7 +682,8 @@ class App {
       audio.play('ui'); return;
     }
     if (t.dataset.quality) { settings.quality = t.dataset.quality as Quality; saveSettings(); this.r3.applyQuality(settings.quality); if (this.demo) this.startDemo(); this.render(); return; }
-    if (t.dataset.rebind) { this.rebinding = t.dataset.rebind; this.render(); return; }
+    if (t.dataset.rebind) { this.rebinding = this.rebinding === t.dataset.rebind ? null : t.dataset.rebind; this.refreshKeyUi(); return; }
+    if (t.dataset.rebindDefault) { const r = bindKey(t.dataset.rebindDefault, DEFAULT_KEYS[t.dataset.rebindDefault]); if (r.swapped) toast(`「${actionLabel(r.swapped)}」의 키도 서로 바꿨습니다`); audio.play('ui'); this.refreshKeyUi(); return; }
     if (!actEl) return;
     const act = actEl.dataset.act;
     audio.play('ui');
@@ -654,7 +707,9 @@ class App {
       case 'leave-match': this.leaveMatch(); break;
       case 'esc-close': this.ui.querySelector('.overlay.esc')?.remove(); break;
       case 'rename': { const n = (this.ui.querySelector('#newName') as HTMLInputElement).value.trim(); this.conn.send({ type: 'setName', name: n }); break; }
-      case 'reset-keys': settings.keys = { ...DEFAULT_KEYS }; saveSettings(); this.render(); break;
+      case 'reset-keys': settings.keys = { ...DEFAULT_KEYS }; this.rebinding = null; saveSettings(); this.refreshKeyUi(); toast('키 설정을 기본값으로 되돌렸습니다'); break;
+      case 'open-keys': this.openKeysOverlay(); break;
+      case 'close-keys': this.rebinding = null; this.ui.querySelector('.overlay.keys')?.remove(); break;
     }
   }
 }

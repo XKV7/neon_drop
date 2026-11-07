@@ -94,6 +94,9 @@ export class Hud {
 
   destroy() { this.root.remove(); }
 
+  /** 키 설정 변경 시 스킬바 키 표시 갱신 */
+  refreshKeys() { this.buildBottom(); }
+
   private buildBottom() {
     const def = this.game.myHeroDef();
     this.skills = this.game.mySkills();

@@ -208,3 +208,10 @@ input, select { font: inherit; }
   .minimap { width: 130px; height: 130px; } .hero-grid { grid-template-columns: repeat(4, 80px); } .hero-card { height: 96px; }
   .lobby { flex-direction: column; } .aug-card { width: 150px; }
 }
+
+/* 키 설정 */
+.kgroups { columns: 2 340px; column-gap: 28px; }
+.kgroup { break-inside: avoid; margin-bottom: 6px; }
+.kgroup h4 { margin: 10px 0 6px; color: var(--cyan); }
+.kgroup .kv { grid-template-columns: 190px 1fr; gap: 5px 10px; align-items: center; font-size: 14px; }
+.keybind { min-width: 104px; }
