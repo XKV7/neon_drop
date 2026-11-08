@@ -1,6 +1,6 @@
 import './style.css';
 import {
-  HEROES, HERO_BY_ID, ROLE_NAMES, AUGMENT_BY_ID, SHOP_ITEMS, heroPalettes, SKIN_NAMES, KILL_EFFECTS, DROP_EFFECTS, EMOTES, TITLES, isFreeItem, BOT_LEVELS,
+  HEROES, HERO_BY_ID, ROLE_NAMES, accountLevel, type ServerInfo, AUGMENT_BY_ID, SHOP_ITEMS, heroPalettes, SKIN_NAMES, KILL_EFFECTS, DROP_EFFECTS, EMOTES, TITLES, isFreeItem, BOT_LEVELS,
   type HeroId, type Profile, type ServerMsg, type ResultRow, type ShopItem, TIER_NAMES, Btn,
 } from '@neon/shared';
 import { Connection, type GameTransport, wakeServer, isRemoteServer } from './net/connection';
@@ -18,7 +18,7 @@ import { settings, loadSettings, saveSettings, storageGet, storageSet, keyLabel,
 
 type Screen = 'title' | 'lobby' | 'queue' | 'room' | 'select' | 'game' | 'shop' | 'profile' | 'settings' | 'codex';
 
-interface MatchCtx { transport: GameTransport; game: ClientGame; world: WorldView; hud: Hud; local: LocalServer | null; results: Extract<ServerMsg, { type: 'results' }> | null; augments: string[] }
+interface MatchCtx { transport: GameTransport; game: ClientGame; world: WorldView; hud: Hud; local: LocalServer | null; results: Extract<ServerMsg, { type: 'results' }> | null; augments: string[]; spectator: boolean }
 
 class App {
   r3: Renderer3D;
@@ -34,7 +34,8 @@ class App {
   room: Extract<ServerMsg, { type: 'room' }> | null = null;
   select: Extract<ServerMsg, { type: 'heroSelect' }> | null = null;
   selHero: HeroId = (storageGet('neon.lastHero') as HeroId) || 'hammerdog';
-  queue = { count: 0, timeLeft: 20 };
+  queue = { count: 0, timeLeft: 20, position: 1, full: false, active: 0, max: 2 };
+  serverInfo: ServerInfo | null = null;
   rematch: Extract<ServerMsg, { type: 'rematchStatus' }> | null = null;
   shopTab = 'palette';
   shopHero: HeroId = 'hammerdog';
@@ -117,12 +118,18 @@ class App {
       case 'welcome':
         this.token = m.token; storageSet('neon.token', m.token); storageSet('neon.name', m.profile.name);
         this.profile = m.profile;
+        this.serverInfo = m.server;
         if (this.screen === 'lobby' || this.screen === 'title') this.render();
         break;
       case 'profile': this.profile = m.profile; storageSet('neon.name', m.profile.name); if (['lobby', 'shop', 'profile'].includes(this.screen)) this.render(); break;
       case 'error': toast(m.text); audio.play('error'); break;
       case 'toast': toast(m.text); audio.play('aug_silver'); break;
-      case 'queueStatus': this.queue = { count: m.count, timeLeft: m.timeLeft }; if (this.screen === 'queue') this.render(); else this.go('queue'); break;
+      case 'queueStatus':
+        this.queue = { count: m.count, timeLeft: m.timeLeft, position: m.position, full: m.full, active: m.active, max: m.max };
+        if (this.match?.spectator) this.match.hud.queueInfo = { position: m.position, count: m.count, active: m.active, max: m.max };
+        else if (this.screen === 'queue') this.render(); else if (this.screen !== 'game') this.go('queue');
+        break;
+      case 'spectateEnd': if (this.match?.spectator) { this.endMatch(); this.startDemo(); this.go('queue'); } break;
       case 'room': this.room = m; this.go('room'); break;
       case 'roomClosed': this.room = null; this.go('lobby'); break;
       case 'heroSelect': {
@@ -187,9 +194,12 @@ class App {
   private startNetMatch(m: Extract<ServerMsg, { type: 'matchStart' }>) {
     this.endMatch();
     this.stopDemo();
-    const game = new ClientGame(this.conn, { seed: m.seed, you: m.you, roster: m.roster, mode: m.mode }, this.input);
-    this.beginMatch(game, this.conn, null);
+    const spectator = !!m.spectator;
+    const game = new ClientGame(this.conn, { seed: m.seed, you: m.you, roster: m.roster, mode: m.mode }, spectator ? null : this.input, spectator);
+    game.ackOnly = spectator;
+    this.beginMatch(game, this.conn, null, spectator);
     if (m.reconnect) toast('진행 중인 판으로 복귀했습니다!');
+    if (spectator) { toast('진행 중인 판이 가득 찼습니다. 관전하며 기다리면 자리가 날 때 자동으로 시작합니다.'); this.match!.hud.queueInfo = { position: this.queue.position, count: this.queue.count, active: this.queue.active, max: this.queue.max }; }
   }
 
   startPractice(hero: HeroId, solo = false) {
@@ -205,7 +215,7 @@ class App {
     local.start();
   }
 
-  private beginMatch(game: ClientGame, transport: GameTransport, local: LocalServer | null) {
+  private beginMatch(game: ClientGame, transport: GameTransport, local: LocalServer | null, spectator = false) {
     const world = new WorldView(game, this.r3.camera, {
       dmgNumber: (x, y, h, amount, kind) => { const p = this.r3.worldToScreen(x, y, h); if (p.vis) this.match?.hud.dmgNumber(p.x, p.y, amount, kind); },
       shake: a => this.match?.world.addShake(a),
@@ -222,10 +232,10 @@ class App {
       chat: t => transport.send({ type: 'chat', text: t }),
       quick: i => transport.send({ type: 'quick', idx: i }),
       emote: i => transport.send({ type: 'emote', idx: i }),
-      leave: () => this.leaveMatch(),
+      leave: () => { if (spectator) { this.conn.send({ type: 'leaveQueue' }); this.endMatch(); this.startDemo(); this.go('lobby'); } else this.leaveMatch(); },
       practice: w => local?.cheat(w),
     });
-    this.match = { transport, game, world, hud, local, results: null, augments: [] };
+    this.match = { transport, game, world, hud, local, results: null, augments: [], spectator };
     this.touch = new TouchControls(this.ui, {
       menu: () => this.toggleEscMenu(),
       score: () => hud.showScoreboard(!hud.scoreboardOpen),
@@ -236,7 +246,8 @@ class App {
     this.input.touch = this.touch;
     this.syncTouch();
     this.input.isChargeSlot = slot => !!game.mySkills()[slot]?.chargeUp;
-    this.input.enabled = true;
+    this.input.enabled = !spectator;
+    if (spectator) this.touch.setEnabled(false);
     this.r3.world = world; this.r3.mode = 'world';
     this.screen = 'game';
     music.theme = 'battle';
@@ -290,7 +301,7 @@ class App {
       ${head}
       <div class="stat-grid"><div class="stat">처치<b>${me?.kills ?? 0}</b></div><div class="stat">가한 피해<b>${me?.damage ?? 0}</b></div><div class="stat">생존 시간<b>${Math.floor((me?.survival ?? 0) / 60)}:${String((me?.survival ?? 0) % 60).padStart(2, '0')}</b></div><div class="stat">레벨<b>${me?.level ?? 1}</b></div></div>
       <div class="row" style="flex-wrap:wrap;gap:6px"><span class="dim">획득 증강</span> ${augList || '<span class="dim">없음</span>'}</div>
-      ${m.local ? '' : `<p>획득 크레딧 <span class="credits">+${credits}</span> <span class="dim">(보유 ${total})</span></p>`}
+      ${m.local ? '' : `<p>획득 크레딧 <span class="credits">+${credits}</span> <span class="dim">(보유 ${total})</span>${m.results?.xpGained ? ` · 계정 경험치 <b class="glow-cyan">+${m.results.xpGained}</b>` : ''}</p>${this.profile ? `<div style="max-width:320px">${this.levelBadge(this.profile)}<span class="dim" style="font-size:12px">계정 레벨</span>${this.levelBar(this.profile)}</div>` : ''}`}
       <table class="res-table"><tr><th>순위</th><th>플레이어</th><th>영웅</th><th>처치</th><th>피해</th></tr>${rows.map(r => `<tr class="${r.id === you ? 'me' : ''}"><td>${r.placement ? '#' + r.placement : '생존 중'}</td><td>${esc(r.name)}</td><td style="color:${hex(HERO_BY_ID[r.heroId].color)}">${HERO_BY_ID[r.heroId].name}</td><td>${r.kills}</td><td>${r.damage}</td></tr>`).join('')}</table>
       <div class="row" style="margin-top:16px;justify-content:flex-end">
         <span class="dim rematch-status"></span>
@@ -551,7 +562,7 @@ class App {
         <div class="logo title-text glow-pink" style="font-size:44px;margin-bottom:8px">네온 낙하<small style="font-size:12px;letter-spacing:8px">NEON DROP</small></div>
         <div class="menu">
           <button class="btn pink" data-act="quick" ${this.serverOk ? '' : 'disabled'}>빠른 시작<small>20초 모집 · 빈자리는 봇</small></button>
-          <button class="btn" data-act="room-menu" ${this.serverOk ? '' : 'disabled'}>사설 방<small>4자리 코드로 친구 초대</small></button>
+          ${this.privateButton()}
           <button class="btn pink" data-act="codex">혼자 하기 (봇전)<small>나 + 봇 9명 · 서버 없이 바로</small></button>
           <button class="btn" data-act="codex">영웅 도감<small>스킬 연습장</small></button>
           <button class="btn" data-act="shop" ${p ? '' : 'disabled'}>꾸미기 / 상점<small>네온 색상 · 스킨 · 효과</small></button>
@@ -563,7 +574,7 @@ class App {
       <div class="grow"></div>
       <div class="col">
         <div class="panel profile-card">
-          ${p ? `<div class="dim" style="font-size:12px">${esc(TITLES[p.loadout.title] ?? '')}</div><div style="font-size:22px;font-weight:800">${esc(p.name)}</div>
+          ${p ? `<div class="dim" style="font-size:12px">${esc(TITLES[p.loadout.title] ?? '')}</div><div style="font-size:22px;font-weight:800">${this.levelBadge(p)}${esc(p.name)}</div>${this.levelBar(p)}
           <div style="margin-top:8px">크레딧 <span class="credits">${p.credits}</span></div>
           <div class="dim" style="font-size:13px;margin-top:6px">${p.stats.games}판 · 1위 ${p.stats.wins}회 · 처치 ${p.stats.kills}</div>` : `<div class="dim conn-status">${this.serverOk ? '계정 불러오는 중…' : this.connStatusText(5000)}</div>`}
         </div>
@@ -578,11 +589,28 @@ class App {
       </div>`;
   }
 
+  private levelBadge(p: Profile) { return `<span class="acc-lv">Lv.${accountLevel(p.stats.xp ?? 0).level}</span>`; }
+  private levelBar(p: Profile) {
+    const l = accountLevel(p.stats.xp ?? 0);
+    return `<div class="lvl-bar" title="다음 레벨까지 ${l.need - l.into}"><i style="width:${(l.into / l.need) * 100}%"></i></div><div class="dim" style="font-size:11px;margin-top:2px">계정 경험치 ${l.into} / ${l.need}</div>`;
+  }
+
+  /** 사설 방 버튼: 준비 중 / 레벨 제한 / 사용 가능 */
+  private privateButton(): string {
+    const min = this.serverInfo?.privateMinLevel ?? null;
+    if (!this.serverOk || !this.serverInfo || min === null) return '<button class="btn" disabled>사설 방 <span class="tag">준비 중</span><small class="soon">곧 열립니다 · 지금은 빠른 시작으로 함께 하세요</small></button>';
+    const lv = accountLevel(this.profile?.stats.xp ?? 0).level;
+    if (lv < min) return `<button class="btn" disabled>사설 방 <span class="tag">Lv.${min} 이상</span><small>현재 Lv.${lv} · 빠른 시작으로 레벨을 올리세요</small></button>`;
+    return '<button class="btn" data-act="room-menu">사설 방<small>4자리 코드로 친구 초대</small></button>';
+  }
+
   private renderQueue(s: HTMLElement) {
     s.classList.add('center');
-    s.innerHTML = `<div class="panel queue-box"><div class="spinner"></div><h2 style="margin:0">매칭 중</h2>
-      <p>모인 인원 <b class="glow-cyan">${this.queue.count}</b> / 10명</p>
-      <p class="dim">${this.queue.timeLeft}초 후 부족한 자리는 봇으로 채워 시작합니다</p>
+    const q = this.queue;
+    s.innerHTML = `<div class="panel queue-box"><div class="spinner"></div><h2 style="margin:0">${q.full ? '대기 중' : '매칭 중'}</h2>
+      ${q.full
+        ? `<p class="queue-full">진행 중인 판이 가득 찼습니다 (${q.active}/${q.max}판)</p><p>대기 <b class="glow-cyan">${q.position}</b>번째 · 대기 인원 ${q.count}명</p><p class="dim">판이 끝나 자리가 나면 순서대로 자동 시작합니다. 진행 중인 판이 있으면 관전 화면으로 넘어갑니다.<br>한 판은 보통 4~5분입니다. 기다리는 동안 혼자 하기(봇전)도 할 수 있어요.</p>`
+        : `<p>모인 인원 <b class="glow-cyan">${q.count}</b> / 10명</p><p class="dim">${q.timeLeft}초 후 부족한 자리는 봇으로 채워 시작합니다</p>`}
       <button class="btn ghost" data-act="leave-queue">취소</button></div>`;
   }
 
@@ -716,7 +744,7 @@ class App {
     s.classList.add('center');
     const st = p.stats;
     s.innerHTML = `<div class="panel sub-panel">
-      <div class="dim">${esc(TITLES[p.loadout.title])}</div><h2 class="glow-cyan" style="margin:2px 0 14px">${esc(p.name)}</h2>
+      <div class="dim">${esc(TITLES[p.loadout.title])}</div><h2 class="glow-cyan" style="margin:2px 0 6px">${this.levelBadge(p)}${esc(p.name)}</h2>${this.levelBar(p)}<div style="height:12px"></div>
       <div class="stat-grid"><div class="stat">총 판 수<b>${st.games}</b></div><div class="stat">1위<b>${st.wins}</b></div><div class="stat">총 처치<b>${st.kills}</b></div><div class="stat">최고 처치<b>${st.bestKills}</b></div></div>
       <table class="res-table"><tr><th>영웅</th><th>판 수</th><th>1위</th><th>처치</th><th>1위 비율</th></tr>${HEROES.map(h => { const r = st.heroes[h.id] ?? { games: 0, wins: 0, kills: 0 }; return `<tr><td style="color:${hex(h.color)}">${h.name}</td><td>${r.games}</td><td>${r.wins}</td><td>${r.kills}</td><td>${r.games ? ((r.wins / r.games) * 100).toFixed(0) + '%' : '-'}</td></tr>`; }).join('')}</table>
       <div class="row" style="margin-top:14px"><input class="field" id="newName" maxlength="12" value="${esc(p.name)}"><button class="btn small" data-act="rename">닉네임 변경</button><div class="grow"></div><button class="btn ghost" data-act="lobby">돌아가기</button></div>
@@ -803,7 +831,7 @@ class App {
     audio.play('ui');
     switch (act) {
       case 'start': this.startFromTitle(); break;
-      case 'quick': this.conn.send({ type: 'queue' }); this.queue = { count: 1, timeLeft: 20 }; this.go('queue'); break;
+      case 'quick': this.conn.send({ type: 'queue' }); this.queue = { ...this.queue, count: 1, timeLeft: 20, position: 1 }; this.go('queue'); break;
       case 'leave-queue': this.conn.send({ type: 'leaveQueue' }); this.go('lobby'); break;
       case 'room-menu': this.ui.querySelector('#roomMenu')?.classList.toggle('hidden'); break;
       case 'create-room': this.conn.send({ type: 'createRoom' }); break;

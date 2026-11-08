@@ -45,13 +45,15 @@ export class Hud {
   private wheelHot = -1;
   private eliminatedInfo: { placement: number } | null = null;
   chatOpen = false;
+  /** 대기열에서 관전 중이면 대기 정보 */
+  queueInfo: { position: number; count: number; active: number; max: number } | null = null;
   /** 근처에 상호작용 가능한 대상이 있는지 (터치 버튼 표시용) */
   canInteract = false;
   get scoreboardOpen() { return !this.scoreEl.classList.contains('hidden'); }
 
   constructor(parent: HTMLElement, game: ClientGame, r3: Renderer3D, cb: HudCallbacks) {
     this.game = game; this.r3 = r3; this.cb = cb;
-    const root = el('div', 'hud');
+    const root = el('div', 'hud' + (game.you === 0 ? ' spectator' : ''));
     this.root = root;
     parent.appendChild(root);
     this.ohLayer = el('div'); this.dmgLayer = el('div');
@@ -92,6 +94,7 @@ export class Hud {
       if (a === 'prev') this.cb.spectate(-1);
       if (a === 'next') this.cb.spectate(1);
       if (a === 'res') this.cb.toResults();
+      if (a === 'leaveq') this.cb.leave();
     });
   }
 
@@ -379,7 +382,11 @@ export class Hud {
     // 관전
     const dead = self.state === 3;
     this.specBox.classList.toggle('hidden', !dead);
-    if (dead) {
+    if (dead && g.you === 0) {
+      const target = g.rosterOf(self.viewId);
+      const q = this.queueInfo;
+      this.setHtml(this.specBox, `<div><div class="dim" style="font-size:12px">${q ? `대기 ${q.position}번째 · 진행 중 ${q.active}/${q.max}판 · 자리가 나면 자동으로 시작` : '대기 중 · 관전'}</div><b class="spec-name">관전: ${esc(target?.name ?? '')}</b></div><button class="btn small ghost" data-a="prev">◀</button><button class="btn small ghost" data-a="next">▶</button><button class="btn small pink" data-a="leaveq">대기열 나가기</button>`);
+    } else if (dead) {
       const target = g.rosterOf(self.viewId);
       this.setHtml(this.specBox, `<div><div class="dim" style="font-size:12px">${this.eliminatedInfo ? `#${this.eliminatedInfo.placement} 탈락 · ` : ''}관전 중</div><b class="spec-name">${esc(target?.name ?? '')}</b></div><button class="btn small ghost" data-a="prev">◀</button><button class="btn small ghost" data-a="next">▶</button><button class="btn small pink" data-a="res">결과 화면</button>`);
     }

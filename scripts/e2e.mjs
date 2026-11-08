@@ -19,7 +19,7 @@ const dataDir = join(tmpdir(), 'neon-e2e-' + Date.now());
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const server = spawn(process.execPath, [join(root, 'server/dist/index.js')], {
-  env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, NEON_XP_MULT: '6', NEON_TIME_SCALE: '3' }, stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, NEON_XP_MULT: '6', NEON_TIME_SCALE: '3', PRIVATE_ROOM_MIN_LEVEL: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', d => process.stderr.write('[서버] ' + d));
 await new Promise(r => server.stdout.on('data', d => { if (String(d).includes('서버 실행')) r(); }));

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import {
-  HERO_IDS, HERO_SELECT_SEC, QUEUE_WAIT_SEC, MAX_PLAYERS, PROTOCOL_VERSION, RECONNECT_GRACE_SEC, Rng, SHOP_BY_ID, botName, filterChat, isFreeItem, heroPalettes, SKIN_NAMES,
-  type ClientMsg, type Cosmetic, type HeroId, type ResultRow, type ServerMsg,
+  HERO_IDS, HERO_SELECT_SEC, accountLevel, QUEUE_WAIT_SEC, MAX_PLAYERS, PROTOCOL_VERSION, RECONNECT_GRACE_SEC, Rng, SHOP_BY_ID, botName, filterChat, isFreeItem, heroPalettes, SKIN_NAMES,
+  type ClientMsg, type Cosmetic, type HeroId, type ResultRow, type ServerMsg, type ServerInfo,
 } from '@neon/shared';
 import { applyResult, toProfile, type Account, type AccountStore } from './db';
 import { MatchRunner, type Participant } from './matchRunner';
@@ -13,8 +13,16 @@ interface Select { id: string; slots: SelectSlot[]; deadline: number; botFill: b
 
 const NAME_RE = /^[\p{L}\p{N}_\-. ]{2,12}$/u;
 
+export interface LobbyOptions {
+  /** 동시에 진행할 수 있는 판 수 (무료 서버 CPU 기준 기본 2) */
+  maxMatches: number;
+  /** 사설 방을 열 수 있는 계정 레벨. null 이면 사설 방은 '준비 중' */
+  privateMinLevel: number | null;
+}
+
 export class Lobby {
   store: AccountStore;
+  opts: LobbyOptions;
   sessions = new Set<Session>();
   queue: Session[] = [];
   queueDeadline = 0;
@@ -26,8 +34,9 @@ export class Lobby {
   rng = new Rng(Date.now() & 0xffffffff);
   private timer: NodeJS.Timeout;
 
-  constructor(store: AccountStore) {
+  constructor(store: AccountStore, opts: LobbyOptions = { maxMatches: 2, privateMinLevel: null }) {
     this.store = store;
+    this.opts = opts;
     this.timer = setInterval(() => this.update(), 250);
   }
 
@@ -35,15 +44,39 @@ export class Lobby {
 
   stats() {
     return { sessions: this.sessions.size, queue: this.queue.length, rooms: this.rooms.size, selects: this.selects.size, matches: this.runners.size,
+      activeMatches: this.activeSlots(), maxMatches: this.opts.maxMatches, spectators: [...this.runners.values()].reduce((n, r) => n + r.spectators.size, 0),
       tickMs: [...this.runners.values()].map(r => Number(r.tickCost.toFixed(3))) };
   }
 
   connect(s: Session) { this.sessions.add(s); }
 
+  get serverInfo(): ServerInfo { return { maxMatches: this.opts.maxMatches, privateMinLevel: this.opts.privateMinLevel }; }
+
+  /** 자리를 차지한 판 수: 영웅 선택 중 + 진행 중(결과 처리 전) */
+  activeSlots(): number {
+    let n = 0;
+    for (const sel of this.selects.values()) if (!sel.started) n++;
+    for (const r of this.runners.values()) if (!r.finished) n++;
+    return n;
+  }
+  private hasCapacity() { return this.activeSlots() < this.opts.maxMatches; }
+
+  /** 대기 중인 사람을 진행 중인 판의 관전자로 붙인다 (사람이 많이 살아 있는 판 우선) */
+  private attachSpectate(s: Session) {
+    if (s.specRunner?.spectatable) return;
+    const cands = [...this.runners.values()].filter(r => r.spectatable).sort((a, b) => b.aliveHumans() - a.aliveHumans());
+    // 옮겨 갈 판이 없으면 관전 종료를 알려 대기 화면으로
+    if (s.specRunner) s.specRunner.detachSpectator(s, !cands[0]);
+    if (cands[0]) cands[0].attachSpectator(s);
+  }
+
+  private stopSpectate(s: Session, notify: boolean) { s.specRunner?.detachSpectator(s, notify); s.specRunner = null; }
+
   disconnect(s: Session) {
     s.alive = false;
     this.sessions.delete(s);
     this.leaveQueue(s);
+    this.stopSpectate(s, false);
     this.leaveRoom(s);
     this.leaveSelect(s);
     if (s.runner) {
@@ -81,6 +114,7 @@ export class Lobby {
         const r = this.rooms.get(s.roomCode);
         if (!r || r.host !== s.pid) return;
         if (!r.botFill && r.members.length < 2) return s.send({ type: 'error', text: '봇 채우기를 끄면 2명 이상이 필요합니다.' });
+        if (!this.hasCapacity()) return s.send({ type: 'error', text: `서버의 동시 진행 판이 가득 찼습니다 (${this.opts.maxMatches}판). 잠시 후 다시 시작해 주세요.` });
         this.rooms.delete(r.code);
         return this.startSelect(r.members, r.botFill, r.botLevel);
       }
@@ -95,6 +129,7 @@ export class Lobby {
       }
       default:
         if (s.runner) s.runner.handle(s, msg as { type: string });
+        else if (s.specRunner && msg.type === 'spectate') s.specRunner.host.setSpectatorTarget(s.id, Number(msg.target) | 0);
     }
   }
 
@@ -129,7 +164,7 @@ export class Lobby {
     // 같은 계정의 다른 연결은 종료
     for (const o of this.sessions) if (o !== s && o.account?.token === acc.token) { o.send({ type: 'error', text: '다른 곳에서 접속했습니다.' }); o.ws.close(); }
     s.account = acc; s.state = 'idle';
-    s.send({ type: 'welcome', token: acc.token, profile: toProfile(acc) });
+    s.send({ type: 'welcome', token: acc.token, profile: toProfile(acc), server: this.serverInfo });
     // 재접속
     const g = this.graces.get(acc.token);
     if (g && !g.runner.finished && Date.now() - g.at < RECONNECT_GRACE_SEC * 1000) {
@@ -149,29 +184,45 @@ export class Lobby {
     if (s.state !== 'idle') return;
     if (this.queue.length === 0) this.queueDeadline = Date.now() + QUEUE_WAIT_SEC * 1000;
     this.queue.push(s); s.state = 'queue';
-    this.broadcastQueue();
     if (this.queue.length >= MAX_PLAYERS) this.flushQueue();
+    if (s.state === 'queue' && !this.hasCapacity()) this.attachSpectate(s);
+    this.broadcastQueue();
   }
 
   private leaveQueue(s: Session) {
     const i = this.queue.indexOf(s);
-    if (i >= 0) { this.queue.splice(i, 1); this.broadcastQueue(); }
+    if (i >= 0) { this.queue.splice(i, 1); this.stopSpectate(s, false); this.broadcastQueue(); }
   }
 
   private broadcastQueue() {
-    const timeLeft = Math.max(0, Math.ceil((this.queueDeadline - Date.now()) / 1000));
-    for (const q of this.queue) q.send({ type: 'queueStatus', count: this.queue.length, timeLeft });
+    const full = !this.hasCapacity();
+    const timeLeft = full ? 0 : Math.max(0, Math.ceil((this.queueDeadline - Date.now()) / 1000));
+    const active = this.activeSlots();
+    this.queue.forEach((q, i) => q.send({ type: 'queueStatus', count: this.queue.length, timeLeft, position: i + 1, full, active, max: this.opts.maxMatches }));
   }
 
   private flushQueue() {
+    if (!this.hasCapacity()) return;
     const group = this.queue.splice(0, MAX_PLAYERS);
+    for (const s of group) this.stopSpectate(s, false);
     if (group.length) this.startSelect(group, true, 1);
     if (this.queue.length) this.queueDeadline = Date.now() + QUEUE_WAIT_SEC * 1000;
   }
 
   // ───────── 사설 방 ─────────
+  /** 사설 방 이용 가능 여부 (null 이면 문제없음, 아니면 안내 문구) */
+  private privateBlocked(s: Session): string | null {
+    const min = this.opts.privateMinLevel;
+    if (min === null) return '사설 방은 준비 중입니다. 빠른 시작이나 혼자 하기를 이용해 주세요.';
+    const lv = accountLevel(s.account?.stats.xp ?? 0).level;
+    if (lv < min) return `사설 방은 계정 레벨 ${min} 이상부터 열 수 있습니다 (현재 ${lv}).`;
+    return null;
+  }
+
   private createRoom(s: Session) {
     if (s.state !== 'idle') return;
+    const blocked = this.privateBlocked(s);
+    if (blocked) return s.send({ type: 'error', text: blocked });
     let code = '';
     do code = String(Math.floor(1000 + Math.random() * 9000)); while (this.rooms.has(code));
     const r: Room = { code, host: s.pid, members: [s], botFill: true, botLevel: 1 };
@@ -182,6 +233,8 @@ export class Lobby {
 
   private joinRoom(s: Session, code: string) {
     if (s.state !== 'idle') return;
+    const blocked = this.privateBlocked(s);
+    if (blocked) return s.send({ type: 'error', text: blocked });
     const r = this.rooms.get(code.trim());
     if (!r) return s.send({ type: 'error', text: '존재하지 않는 방 코드입니다.' });
     if (r.members.length >= MAX_PLAYERS) return s.send({ type: 'error', text: '방이 가득 찼습니다.' });
@@ -285,7 +338,7 @@ export class Lobby {
     void (async () => {
       const acc = await this.accountFor(pid);
       if (!acc) return;
-      applyResult(acc, row.heroId, row.placement, row.kills, credits);
+      applyResult(acc, row.heroId, row.placement, row.kills, credits, row.survival);
       this.persist(acc);
       for (const s of this.sessions) if (s.account === acc) s.send({ type: 'profile', profile: toProfile(acc) });
     })().catch(e => console.error('결과 저장 실패', e));
@@ -319,7 +372,13 @@ export class Lobby {
     const group = r.connectedHumans().filter(h => r.rematch!.pids.has(h.pid) && h.runner === r);
     r.rematch = null;
     for (const h of group) { r.detach(h); h.runner = null; h.heroId = 0; h.state = 'idle'; }
-    if (group.length) this.startSelect(group, r.botFill || group.length < 2, r.botLevel);
+    if (!group.length) return;
+    if (this.hasCapacity()) { this.startSelect(group, r.botFill || group.length < 2, r.botLevel); return; }
+    // 자리가 없으면 대기열 맨 앞에서 관전하며 기다린다
+    if (this.queue.length === 0) this.queueDeadline = Date.now();
+    this.queue.unshift(...group);
+    for (const h of group) { h.state = 'queue'; this.attachSpectate(h); }
+    this.broadcastQueue();
   }
 
   // ───────── 상점 ─────────
@@ -367,7 +426,9 @@ export class Lobby {
   private lastBroadcast = 0;
   private update() {
     const now = Date.now();
-    if (this.queue.length && now >= this.queueDeadline) this.flushQueue();
+    if (this.queue.length && (now >= this.queueDeadline || this.queue.length >= MAX_PLAYERS)) this.flushQueue();
+    // 아직 자리가 없으면 대기자는 관전 (관전하던 판이 끝났으면 다른 판으로)
+    if (this.queue.length && !this.hasCapacity()) for (const q of this.queue) if (!q.specRunner || q.specRunner.finished) this.attachSpectate(q);
     for (const sel of [...this.selects.values()]) if (!sel.started && now >= sel.deadline) this.launch(sel);
     if (now - this.lastBroadcast >= 1000) {
       this.lastBroadcast = now;

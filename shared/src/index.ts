@@ -15,6 +15,7 @@ export * from './data/types';
 export * from './data/heroes';
 export * from './data/augments';
 export * from './data/cosmetics';
+export * from './data/account';
 export * from './net/codec';
 export * from './net/protocol';
 export * from './net/host';

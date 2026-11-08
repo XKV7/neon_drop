@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { DEFAULT_LOADOUT, STARTING_CREDITS, type HeroId, type Loadout, type Profile } from '@neon/shared';
+import { DEFAULT_LOADOUT, STARTING_CREDITS, accountXpGain, type HeroId, type Loadout, type Profile } from '@neon/shared';
 
 export interface Account { token: string; name: string; credits: number; owned: string[]; loadout: Loadout; stats: Profile['stats'] }
 
@@ -37,7 +37,9 @@ export function normalizeAccount(token: string, d: Partial<Account>): Account {
 }
 
 /** 판 결과 반영 (메모리 객체 수정, 저장은 호출 측) */
-export function applyResult(a: Account, heroId: HeroId, placement: number, kills: number, credits: number) {
+export function applyResult(a: Account, heroId: HeroId, placement: number, kills: number, credits: number, survivalSec = 0): number {
+  const xp = accountXpGain(placement, kills, survivalSec);
+  a.stats.xp = (a.stats.xp ?? 0) + xp;
   a.credits += credits;
   a.stats.games++;
   if (placement === 1) a.stats.wins++;
@@ -46,6 +48,7 @@ export function applyResult(a: Account, heroId: HeroId, placement: number, kills
   const hr = a.stats.heroes[heroId] ?? { games: 0, wins: 0, kills: 0 };
   hr.games++; if (placement === 1) hr.wins++; hr.kills += kills;
   a.stats.heroes[heroId] = hr;
+  return xp;
 }
 
 export function toProfile(a: Account): Profile {

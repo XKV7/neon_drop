@@ -115,3 +115,17 @@ describe('증강', () => {
     expect(ha.maxCds[1]).toBeLessThan(cd0);
   });
 });
+
+import { accountLevel, accountXpGain, accountXpToNext } from '../src/index';
+describe('계정 레벨', () => {
+  it('누적 경험치로 레벨과 진행도를 계산한다', () => {
+    expect(accountLevel(0)).toEqual({ level: 1, into: 0, need: accountXpToNext(1) });
+    expect(accountLevel(accountXpToNext(1)).level).toBe(2);
+    expect(accountLevel(accountXpToNext(1) + accountXpToNext(2) - 1)).toEqual({ level: 2, into: accountXpToNext(2) - 1, need: accountXpToNext(2) });
+  });
+  it('순위가 높고 처치가 많을수록 더 많이 얻는다', () => {
+    expect(accountXpGain(1, 3, 280)).toBeGreaterThan(accountXpGain(5, 3, 280));
+    expect(accountXpGain(5, 3, 200)).toBeGreaterThan(accountXpGain(5, 0, 200));
+    expect(accountXpGain(10, 0, 30)).toBeGreaterThan(0);
+  });
+});

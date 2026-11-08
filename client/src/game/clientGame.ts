@@ -60,6 +60,9 @@ export class ClientGame {
   get self(): SelfBlock | null { return this.latest?.self ?? null; }
   get match(): MatchBlock | null { return this.latest?.match ?? null; }
 
+  /** 네트워크 관전자: 입력 없이 확인(ack)과 핑만 보내 델타 스냅샷을 받는다 */
+  ackOnly = false;
+
   constructor(transport: GameTransport, start: { seed: number; you: number; roster: RosterEntry[]; mode: string }, input: Input | null, spectatorOnly = false) {
     this.transport = transport;
     this.map = generateMap(start.seed);
@@ -162,7 +165,7 @@ export class ClientGame {
     this.interpolate();
     if (now - this.pingTimer > 1000) {
       this.pingTimer = now;
-      if (!this.spectatorOnly) this.transport.sendBinary(encodePing(now));
+      if (!this.spectatorOnly || this.ackOnly) this.transport.sendBinary(encodePing(now));
       this.lastPingSent = now;
     }
     if (now - this.byteTimer > 1000) { this.bytesPerSec = this.byteAcc * 1000 / (now - this.byteTimer || 1000); this.byteAcc = 0; this.byteTimer = now; }
@@ -171,6 +174,7 @@ export class ClientGame {
   get serverNow() { return performance.now() / TICK_MS + this.offset; }
 
   private fixedTick() {
+    if (this.ackOnly && this.latest) { this.seq++; if (this.seq % 2 === 0) this.transport.sendBinary(encodeInputs(this.newestTick, [])); return; }
     if (this.spectatorOnly || !this.input || !this.latest) return;
     const self = this.latest.self;
     const mv = this.input.moveVector();

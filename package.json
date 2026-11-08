@@ -21,7 +21,8 @@
     "build:offline": "npm run build:offline -w client",
     "build:hosting": "node scripts/build-hosting.mjs",
     "deploy:server": "bash scripts/deploy-cloudrun.sh",
-    "deploy:hosting": "firebase deploy --only hosting,firestore"
+    "deploy:hosting": "firebase deploy --only hosting,firestore",
+    "e2e:queue": "node scripts/e2e-queue.mjs"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

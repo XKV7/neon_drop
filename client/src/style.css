@@ -340,3 +340,12 @@ body.touch .chat-input { left: 50%; transform: translateX(-50%); bottom: auto; t
   body.touch .augs { top: calc(330px + var(--sai-t)); left: calc(10px + var(--sai-l)); }
   body.touch .chat { top: calc(200px + var(--sai-t)); }
 }
+
+/* 대기열 관전 모드: 내 캐릭터 UI 숨김 */
+.hud.spectator .bottom, .hud.spectator .augs, .hud.spectator .prompt, .hud.spectator .channel { display: none; }
+.hud.spectator .spectate { bottom: calc(24px + var(--sai-b)); }
+.queue-full { color: var(--yellow); }
+.lvl-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; margin-top: 4px; }
+.lvl-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--purple), var(--cyan)); }
+.acc-lv { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--cyan); color: var(--cyan); font-size: 12px; font-weight: 800; margin-right: 6px; }
+.menu .btn small.soon { color: var(--yellow); }

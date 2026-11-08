@@ -1,4 +1,4 @@
-import { Match, MatchHost, TICK_MS, computeCredits, filterChat, QUICK_CHATS, HERO_BY_ID, type Cosmetic, type HeroId, type MatchMsg, type RosterEntry, type ResultRow, type ServerMsg } from '@neon/shared';
+import { Match, MatchHost, TICK_MS, computeCredits, accountXpGain, filterChat, QUICK_CHATS, HERO_BY_ID, type Cosmetic, type HeroId, type MatchMsg, type RosterEntry, type ResultRow, type ServerMsg } from '@neon/shared';
 import type { Session } from './session';
 
 export interface Participant { session: Session | null; pid: string; name: string; heroId: HeroId; isBot: boolean; botLevel: number; cos: Cosmetic }
@@ -16,6 +16,8 @@ export class MatchRunner {
   parts: Participant[];
   heroOf = new Map<string, number>(); // pid → hero id
   sessions = new Map<number, Session>();
+  /** 대기열 관전자 */
+  spectators = new Set<Session>();
   private timer: NodeJS.Timeout | null = null;
   private nextAt = 0;
   awarded = new Set<string>();
@@ -58,6 +60,24 @@ export class MatchRunner {
     this.host.attach(heroId, d => s.sendBinary(d), m => s.send(m as ServerMsg));
     if (this.ended) this.sendResults(s);
   }
+
+  attachSpectator(s: Session) {
+    this.spectators.add(s);
+    s.specRunner = this;
+    s.send({ type: 'matchStart', matchId: this.id, seed: this.match.cfg.seed, you: 0, roster: this.roster(), mode: 'br', reconnect: false, spectator: true } satisfies ServerMsg);
+    this.host.attachSpectator(s.id, d => s.sendBinary(d), m => s.send(m as ServerMsg));
+  }
+
+  detachSpectator(s: Session, notify = true) {
+    if (!this.spectators.delete(s)) return;
+    this.host.detachSpectator(s.id);
+    if (s.specRunner === this) s.specRunner = null;
+    if (notify) s.send({ type: 'spectateEnd' } satisfies ServerMsg);
+  }
+
+  /** 관전자를 받을 수 있는 상태 (끝나지 않은 판) */
+  get spectatable() { return !this.finished && !this.ended; }
+  aliveHumans() { return this.match.w.heroes.filter(h => !h.isBot && h.state !== 'dead').length; }
 
   detach(s: Session) {
     if (s.heroId) {
@@ -121,11 +141,13 @@ export class MatchRunner {
     const h = this.match.w.hero(s.heroId)!;
     if (h.state !== 'dead' && !this.ended) return;
     const rows = this.match.results().map(r => ({ ...r, placement: this.ended || this.match.w.hero(r.id)!.state === 'dead' ? r.placement : 0 }));
-    s.send({ type: 'results', rows: rows as ResultRow[], you: s.heroId, credits: this.creditsFor(s.heroId), total: s.account?.credits ?? 0, rematch: this.id });
+    const mine = this.match.results().find(r => r.id === s.heroId)!;
+    s.send({ type: 'results', rows: rows as ResultRow[], you: s.heroId, credits: this.creditsFor(s.heroId), total: s.account?.credits ?? 0, rematch: this.id, xpGained: accountXpGain(mine.placement, mine.kills, mine.survival) });
   }
 
   private finish() {
     this.finished = true;
+    for (const s of [...this.spectators]) this.detachSpectator(s, true);
     for (const s of this.sessions.values()) if (s.alive && s.runner === this) this.sendResults(s);
     this.stop();
     this.hooks.onFinished(this);

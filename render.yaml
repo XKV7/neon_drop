@@ -13,6 +13,9 @@ services:
     envVars:
       - key: STORE
         value: firestore
+      # 무료 서버(CPU 0.1개) 기준 동시 진행 판 수. 넘치면 대기열에서 관전하며 기다린다
+      - key: MAX_MATCHES
+        value: "2"
       # Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 (JSON 전체 붙여넣기)
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false

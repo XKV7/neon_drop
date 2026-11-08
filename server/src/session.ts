@@ -15,6 +15,8 @@ export class Session {
   roomCode = '';
   selectId = '';
   runner: MatchRunner | null = null;
+  /** 대기열에서 관전 중인 매치 */
+  specRunner: MatchRunner | null = null;
   heroId = 0;
   alive = true;
   helloPending = false;

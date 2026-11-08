@@ -18,7 +18,9 @@ const STATIC_DIR = process.env.STATIC_DIR ?? resolve(here, '../../client/dist');
 const startedAt = Date.now();
 
 const store = await openStore(process.env, join(DATA_DIR, 'neon-drop.db'));
-const lobby = new Lobby(store);
+const MAX_MATCHES = Math.max(1, Number(process.env.MAX_MATCHES ?? 2) || 2);
+const PRIVATE_ROOM_MIN_LEVEL = process.env.PRIVATE_ROOM_MIN_LEVEL ? Math.max(1, Number(process.env.PRIVATE_ROOM_MIN_LEVEL) || 1) : null;
+const lobby = new Lobby(store, { maxMatches: MAX_MATCHES, privateMinLevel: PRIVATE_ROOM_MIN_LEVEL });
 /** 다른 도메인(예: Firebase Hosting)에서 접속을 허용할 출처 목록. 비우면 모두 허용 */
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '').split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean);
 const originAllowed = (origin: string | undefined) => !ALLOWED_ORIGINS.length || !origin || ALLOWED_ORIGINS.includes(origin);
@@ -73,6 +75,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (data, isBinary) => {
     if (!s.allow()) return;
     if (isBinary) {
+      if (s.specRunner && !s.runner) { const b = data instanceof Buffer ? data : Buffer.concat(data as Buffer[]); if (b.byteLength <= 512) s.specRunner.host.spectatorAck(s.id, new Uint8Array(b.buffer, b.byteOffset, b.byteLength)); return; }
       if (!s.runner || !s.heroId) return;
       const buf = data instanceof Buffer ? data : Buffer.concat(data as Buffer[]);
       if (buf.byteLength > 512) return;
@@ -98,6 +101,7 @@ server.listen(PORT, HOST, () => {
   console.log(`\n  ▶ 네온 낙하 서버 실행: http://localhost:${PORT}`);
   for (const list of Object.values(networkInterfaces())) for (const n of list ?? []) if (n.family === 'IPv4' && !n.internal) console.log(`    LAN: http://${n.address}:${PORT}`);
   console.log(`    상태 확인: http://localhost:${PORT}/health`);
+  console.log(`    동시 진행 판: 최대 ${MAX_MATCHES} · 사설 방: ${PRIVATE_ROOM_MIN_LEVEL === null ? '준비 중' : `Lv.${PRIVATE_ROOM_MIN_LEVEL} 이상`}`);
   console.log(`    계정 저장소: ${store.kind}${ALLOWED_ORIGINS.length ? ` · 허용 출처: ${ALLOWED_ORIGINS.join(', ')}` : ''}\n`);
 });
 

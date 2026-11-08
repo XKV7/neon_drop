@@ -34,6 +34,8 @@ const MAX_INPUTS_PER_SEC = 40;
 export class MatchHost {
   match: Match;
   clients = new Map<number, HostClient>();
+  /** 대기열 관전자 (영웅 없음, heroId = 0) — 키는 서버 세션 id */
+  spectators = new Map<number, HostClient>();
   private writer = new Writer(4096);
   onMsg: (m: MatchMsg) => void = () => {};
   private globalEnts = new Map<number, { e: NetEnt; x: number; y: number; kind: number; owner: number; r: number }>();
@@ -53,6 +55,42 @@ export class MatchHost {
     if (h && h.augments.length) sendJson({ type: 'augList', ids: [...h.augments] });
     if (h && h.pending.length) sendJson({ type: 'augOffer', options: h.pending[0].options, source: h.pending[0].source, deadline: h.pending[0].deadline, queue: h.pending.length });
     return c;
+  }
+
+  attachSpectator(sid: number, send: (d: Uint8Array) => void, sendJson: (m: object) => void): HostClient {
+    const c: HostClient = {
+      heroId: 0, send, sendJson, ackTick: 0, hist: new Map(), queue: [], lastInput: { ...EMPTY_INPUT }, recvSeq: 0, appliedSeq: 0,
+      spectate: this.pickSpectateTarget(), rateWindow: 0, rateCount: 0, rejected: 0, connected: true, bytesOut: 0,
+    };
+    this.spectators.set(sid, c);
+    return c;
+  }
+
+  detachSpectator(sid: number) { this.spectators.delete(sid); }
+
+  /** 관전 대상 기본값: 사람 > 처치 많은 순 */
+  pickSpectateTarget(): number {
+    const alive = this.match.w.heroes.filter(h => h.state !== 'dead');
+    alive.sort((a, b) => Number(a.isBot) - Number(b.isBot) || b.kills - a.kills);
+    return alive[0]?.id ?? 1;
+  }
+
+  setSpectatorTarget(sid: number, target: number) {
+    const c = this.spectators.get(sid);
+    const t = this.match.w.hero(target);
+    if (c && t && t.state !== 'dead') c.spectate = target;
+  }
+
+  /** 관전자 ack (관전자는 입력 대신 확인 틱만 보낸다) */
+  spectatorAck(sid: number, data: Uint8Array) {
+    const c = this.spectators.get(sid);
+    if (!c) return;
+    try {
+      const r = new Reader(data);
+      const type = r.readU8();
+      if (type === Msg.Input) { const { ackTick } = decodeInputs(r); if (ackTick <= this.match.w.tick && ackTick > c.ackTick) c.ackTick = ackTick; }
+      else if (type === Msg.Ping) c.send(encodePong(r.readF64(), this.match.w.tick));
+    } catch { /* 무시 */ }
   }
 
   detach(heroId: number) {
@@ -130,15 +168,17 @@ export class MatchHost {
     w.msgs.length = 0;
     this.buildGlobal();
     for (const c of this.clients.values()) if (c.connected) this.sendSnapshot(c);
+    for (const c of this.spectators.values()) this.sendSnapshot(c);
     if (w.tick % 30 === 0) {
       const sb = { type: 'scoreboard', rows: m.scoreboard() };
       for (const c of this.clients.values()) if (c.connected) c.sendJson(sb);
+      for (const c of this.spectators.values()) c.sendJson(sb);
     }
   }
 
   private routeMsg(msg: MatchMsg) {
     this.onMsg(msg);
-    if (msg.to === 'all') { for (const c of this.clients.values()) if (c.connected) c.sendJson(msg); }
+    if (msg.to === 'all') { for (const c of this.clients.values()) if (c.connected) c.sendJson(msg); for (const c of this.spectators.values()) if (msg.type !== 'end') c.sendJson(msg); }
     else { const c = this.clients.get(msg.to); if (c && c.connected) c.sendJson(msg); }
   }
 
@@ -225,6 +265,11 @@ export class MatchHost {
 
   observerFor(c: HostClient): Hero {
     const w = this.match.w;
+    if (c.heroId === 0) {
+      let t = w.hero(c.spectate);
+      if (!t || t.state === 'dead') { c.spectate = this.pickSpectateTarget(); t = w.hero(c.spectate); }
+      return t ?? w.heroes[0];
+    }
     const me = w.hero(c.heroId)!;
     if (me.state !== 'dead') return me;
     let t = c.spectate ? w.hero(c.spectate) : undefined;
@@ -238,8 +283,8 @@ export class MatchHost {
 
   private sendSnapshot(c: HostClient) {
     const m = this.match, w = m.w;
-    const me = w.hero(c.heroId)!;
     const obs = this.observerFor(c);
+    const me = c.heroId === 0 ? obs : w.hero(c.heroId)!;
     const ox = obs.m.x, oy = obs.m.y;
     const cur = new Map<number, NetEnt>();
     for (const [id, g] of this.globalEnts) {
@@ -268,6 +313,7 @@ export class MatchHost {
       destroyed: w.destroyed,
     };
     const self = this.selfBlock(me, obs);
+    if (c.heroId === 0) { self.heroId = 0; self.state = 3; }
     // 이벤트 필터
     const R = VIEW_RADIUS + 5;
     const evs: SimEvent[] = [];
