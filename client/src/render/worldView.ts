@@ -431,6 +431,16 @@ export class WorldView {
     G.uNext.value.set(m.nx, m.ny, m.nr, m.showNext);
   }
 
+  private dropMarker: THREE.Mesh | null = null;
+  /** 키보드 낙하 지점 표시 */
+  setDropMarker(x: number | null, y: number | null) {
+    if (x === null || y === null) { if (this.dropMarker) { this.decals.release(this.dropMarker); this.dropMarker = null; } return; }
+    if (!this.dropMarker) this.dropMarker = this.decals.get(0);
+    const mat = this.dropMarker.material as THREE.ShaderMaterial;
+    mat.uniforms.uKind.value = 5; mat.uniforms.uColor.value.copy(CYAN); mat.uniforms.uAlpha.value = 1; mat.uniforms.uProgress.value = 0;
+    this.decals.place(this.dropMarker, 0, x, y, { r: 2.2 + Math.sin(this.time * 6) * 0.2, y: 0.08 });
+  }
+
   setAim(slot: number, def: SkillDef | null, ax: number, ay: number) {
     const me = this.game.view.get(this.game.you);
     if (!def || !me || slot < 0) { if (this.indicator) { this.decals.release(this.indicator); this.indicator = null; } if (this.indicator2) { this.decals.release(this.indicator2); this.indicator2 = null; } return; }

@@ -8,7 +8,12 @@ export const G = {
   uZone: { value: new THREE.Vector4(0, 0, 999, 0) }, // x, y, r, dps>0?
   uNext: { value: new THREE.Vector4(0, 0, 0, 0) }, // x, y, r, show
   uLightDir: { value: new THREE.Vector3(-0.45, 1.0, 0.55).normalize() },
+  /** 네온 빛 강도 (설정). 영웅은 가독성을 위해 덜 줄인다 */
+  uNeon: { value: 0.55 },
+  uNeonHero: { value: 0.78 },
 };
+
+export function setNeon(v: number) { G.uNeon.value = v; G.uNeonHero.value = 0.5 + 0.5 * v; }
 
 const VIS_FN = /* glsl */ `
 uniform sampler2D uVisTex; uniform float uVisOn;
@@ -73,7 +78,7 @@ export function toonMaterial(opts: { color: THREE.ColorRepresentation; emissive?
 /** 단색 발광 (네온 파츠) */
 export function glowMaterial(color: THREE.ColorRepresentation, strength = 2.2, opts: { additive?: boolean; opacity?: number; shared?: Record<string, THREE.IUniform> } = {}) {
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(color).multiplyScalar(strength) }, uAlpha: { value: opts.opacity ?? 1 }, uTime: G.uTime, ...(opts.shared ?? { uOpacity: { value: 1 }, uFlash: { value: 0 } }) },
+    uniforms: { uColor: { value: new THREE.Color(color).multiplyScalar(strength) }, uAlpha: { value: opts.opacity ?? 1 }, uTime: G.uTime, uNeonK: opts.shared ? G.uNeonHero : G.uNeon, ...(opts.shared ?? { uOpacity: { value: 1 }, uFlash: { value: 0 } }) },
     vertexShader: /* glsl */ `
       #ifdef USE_INSTANCING_COLOR
       varying vec3 vIC;
@@ -86,12 +91,12 @@ export function glowMaterial(color: THREE.ColorRepresentation, strength = 2.2, o
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uColor; uniform float uAlpha; uniform float uOpacity; uniform float uFlash;
+      uniform vec3 uColor; uniform float uAlpha; uniform float uOpacity; uniform float uFlash; uniform float uNeonK;
       #ifdef USE_INSTANCING_COLOR
       varying vec3 vIC;
       #endif
       void main() {
-        vec3 c = uColor;
+        vec3 c = uColor * (0.25 + 0.75 * uNeonK);
         #ifdef USE_INSTANCING_COLOR
         c *= vIC;
         #endif
@@ -106,7 +111,7 @@ export function glowMaterial(color: THREE.ColorRepresentation, strength = 2.2, o
 /** 소품/엄폐물: 인스턴스 색 + 시야 어둡게 */
 export function propMaterial(base: THREE.ColorRepresentation, opts: { stripes?: number; emissiveEdge?: number } = {}) {
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(base) }, uLightDir: G.uLightDir, uTime: G.uTime, uVisTex: G.uVisTex, uVisOn: G.uVisOn, uStripes: { value: opts.stripes ?? 0 }, uEdge: { value: opts.emissiveEdge ?? 0 } },
+    uniforms: { uColor: { value: new THREE.Color(base) }, uLightDir: G.uLightDir, uTime: G.uTime, uVisTex: G.uVisTex, uVisOn: G.uVisOn, uStripes: { value: opts.stripes ?? 0 }, uEdge: { value: opts.emissiveEdge ?? 0 }, uNeon: G.uNeon },
     vertexShader: /* glsl */ `
       varying vec3 vWorld; varying vec3 vLocal; varying vec3 vIC;
       void main() {
@@ -120,7 +125,7 @@ export function propMaterial(base: THREE.ColorRepresentation, opts: { stripes?: 
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uColor; uniform vec3 uLightDir; uniform float uStripes; uniform float uEdge; uniform float uTime;
+      uniform vec3 uColor; uniform vec3 uLightDir; uniform float uStripes; uniform float uEdge; uniform float uTime; uniform float uNeon;
       varying vec3 vWorld; varying vec3 vLocal; varying vec3 vIC;
       ${VIS_FN}
       void main() {
@@ -132,10 +137,10 @@ export function propMaterial(base: THREE.ColorRepresentation, opts: { stripes?: 
         vec3 col = uColor * toon;
         if (uStripes > 0.0) col *= 0.82 + 0.18 * step(0.5, fract((vLocal.x + vLocal.z) * uStripes));
         float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-        col += vIC * rim * 0.35;
+        col += vIC * rim * 0.35 * uNeon;
         if (uEdge > 0.0) {
           float top = smoothstep(uEdge, 0.0, abs(vLocal.y - 0.5));
-          col += vIC * top * 2.2;
+          col += vIC * top * 2.2 * uNeon;
         }
         col *= mix(0.42, 1.0, visAt(vWorld));
         gl_FragColor = vec4(col, 1.0);
@@ -146,7 +151,7 @@ export function propMaterial(base: THREE.ColorRepresentation, opts: { stripes?: 
 /** 건물: 절차적 창문 + 네온 테두리 */
 export function buildingMaterial() {
   return new THREE.ShaderMaterial({
-    uniforms: { uLightDir: G.uLightDir, uTime: G.uTime, uVisTex: G.uVisTex, uVisOn: G.uVisOn, uAlpha: { value: 1 } },
+    uniforms: { uLightDir: G.uLightDir, uTime: G.uTime, uVisTex: G.uVisTex, uVisOn: G.uVisOn, uAlpha: { value: 1 }, uNeon: G.uNeon },
     vertexShader: /* glsl */ `
       attribute vec3 aNeon; attribute float aSeed; attribute vec3 aSize;
       varying vec3 vWorld; varying vec3 vNeon; varying float vSeed; varying vec3 vLocal; varying vec3 vSize;
@@ -156,7 +161,7 @@ export function buildingMaterial() {
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uLightDir; uniform float uTime; uniform float uAlpha;
+      uniform vec3 uLightDir; uniform float uTime; uniform float uAlpha; uniform float uNeon;
       varying vec3 vWorld; varying vec3 vNeon; varying float vSeed; varying vec3 vLocal; varying vec3 vSize;
       ${VIS_FN}
       float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)) + vSeed * 17.0) * 43758.5453); }
@@ -175,13 +180,13 @@ export function buildingMaterial() {
           float lit = step(0.58, h2(cell));
           float flick = 0.85 + 0.15 * sin(uTime * (2.0 + h2(cell + 3.0) * 6.0) + h2(cell) * 30.0);
           vec3 wc = mix(vec3(1.0, 0.75, 0.45), vNeon, step(0.6, h2(cell + 7.0)));
-          col += win * lit * wc * 0.9 * flick * step(0.9, vWorld.y);
+          col += win * lit * wc * (0.35 + 0.55 * uNeon) * flick * step(0.9, vWorld.y);
           col += win * (1.0 - lit) * vec3(0.02, 0.03, 0.06);
           // 상단 네온 띠
           float topBand = smoothstep(0.18, 0.0, abs(vWorld.y - (vSize.y - 0.35)));
-          col += vNeon * topBand * 2.4;
+          col += vNeon * topBand * 2.4 * uNeon;
           float baseBand = smoothstep(0.08, 0.0, abs(vWorld.y - 0.6));
-          col += vNeon * baseBand * 1.2;
+          col += vNeon * baseBand * 1.2 * uNeon;
         } else {
           col = vec3(0.05, 0.045, 0.08);
           vec2 g = abs(fract(vWorld.xz * 0.5) - 0.5);
@@ -200,12 +205,12 @@ export function buildingMaterial() {
 /** 홀로그램 (스캔라인, 깜빡임) */
 export function hologramMaterial(color: THREE.ColorRepresentation, opts: { opacity?: number; pattern?: number } = {}) {
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(color) }, uTime: G.uTime, uOpacity: { value: opts.opacity ?? 0.5 }, uPattern: { value: opts.pattern ?? 0 }, uFade: { value: 1 } },
+    uniforms: { uColor: { value: new THREE.Color(color) }, uTime: G.uTime, uOpacity: { value: opts.opacity ?? 0.5 }, uPattern: { value: opts.pattern ?? 0 }, uFade: { value: 1 }, uNeon: G.uNeon },
     vertexShader: /* glsl */ `
       varying vec2 vUv; varying vec3 vWorld;
       void main() { vUv = uv; vec4 wp = modelMatrix * vec4(position, 1.0); vWorld = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uColor; uniform float uTime; uniform float uOpacity; uniform float uPattern; uniform float uFade;
+      uniform vec3 uColor; uniform float uTime; uniform float uOpacity; uniform float uPattern; uniform float uFade; uniform float uNeon;
       varying vec2 vUv; varying vec3 vWorld;
       float h(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5); }
       void main() {
@@ -221,7 +226,7 @@ export function hologramMaterial(color: THREE.ColorRepresentation, opts: { opaci
         }
         float flick = 0.85 + 0.15 * step(0.92, h(vec2(floor(uTime * 12.0), 1.0)));
         float a = (0.25 + 0.75 * content + edge * 1.3) * scan * flick * uOpacity * uFade * (0.6 + 0.4 * band);
-        gl_FragColor = vec4(uColor * (1.5 + content), a);
+        gl_FragColor = vec4(uColor * (1.5 + content) * (0.3 + 0.7 * uNeon), a * (0.45 + 0.55 * uNeon));
       }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
   });
@@ -232,7 +237,7 @@ export function groundMaterial(groundMap: THREE.Texture) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uMap: { value: groundMap }, uTime: G.uTime, uVisTex: G.uVisTex, uVisOn: G.uVisOn, uZone: G.uZone, uNext: G.uNext,
-      uRefl: { value: null as THREE.Texture | null }, uReflOn: { value: 0 }, uTexMat: { value: new THREE.Matrix4() },
+      uRefl: { value: null as THREE.Texture | null }, uReflOn: { value: 0 }, uTexMat: { value: new THREE.Matrix4() }, uNeon: G.uNeon,
     },
     vertexShader: /* glsl */ `
       uniform mat4 uTexMat;
@@ -240,7 +245,7 @@ export function groundMaterial(groundMap: THREE.Texture) {
       void main() { vec4 wp = modelMatrix * vec4(position, 1.0); vWorld = wp.xyz; vReflUv = uTexMat * wp; gl_Position = projectionMatrix * viewMatrix * wp; }`,
     fragmentShader: /* glsl */ `
       uniform sampler2D uMap; uniform float uTime; uniform vec4 uZone; uniform vec4 uNext;
-      uniform sampler2D uRefl; uniform float uReflOn;
+      uniform sampler2D uRefl; uniform float uReflOn; uniform float uNeon;
       varying vec3 vWorld; varying vec4 vReflUv;
       ${VIS_FN}
       float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
@@ -254,7 +259,7 @@ export function groundMaterial(groundMap: THREE.Texture) {
         // 타일 줄눈
         vec2 g = abs(fract(p / 2.0) - 0.5);
         col += gm.rgb * 0.06 * step(0.47, max(g.x, g.y));
-        col += gm.rgb * 0.3; // 구역 색조/네온 반사 페인트
+        col += gm.rgb * 0.3 * (0.35 + 0.65 * uNeon); // 구역 색조/네온 반사 페인트
         float wet = clamp(gm.a + 0.25 * n2(p * 0.4), 0.0, 1.0);
         // 반사
         if (uReflOn > 0.5) {

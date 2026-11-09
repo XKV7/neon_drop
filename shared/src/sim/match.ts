@@ -162,7 +162,7 @@ export class Match implements BotView {
     // 낙하 단계
     if (this.phase === 'drop') {
       for (const h of w.heroes) {
-        if (h.state === 'drop' && (h.input.pressed & Btn.Basic)) this.dropHero(h, h.input.ax, h.input.ay);
+        if (h.state === 'drop' && (h.input.pressed & (Btn.Basic | Btn.Dodge))) this.dropHero(h, h.input.ax, h.input.ay);
       }
       if (this.time >= DROP_PHASE_SEC) {
         for (const h of w.heroes) if (h.state === 'drop') {

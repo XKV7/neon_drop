@@ -49,6 +49,8 @@ export class Hud {
   queueInfo: { position: number; count: number; active: number; max: number } | null = null;
   /** 근처에 상호작용 가능한 대상이 있는지 (터치 버튼 표시용) */
   canInteract = false;
+  /** 키보드 자동 조준 중 (안내 문구용) */
+  keyboardAim = false;
   get scoreboardOpen() { return !this.scoreEl.classList.contains('hidden'); }
 
   constructor(parent: HTMLElement, game: ClientGame, r3: Renderer3D, cb: HudCallbacks) {
@@ -197,6 +199,7 @@ export class Hud {
     o.options.forEach((id, i) => {
       const a = AUGMENT_BY_ID[id];
       const c = el('div', 'aug-card ' + a.tier, `<div class="hk">${i + 1}</div><div class="tr" style="color:var(--${a.tier})">${TIER_NAMES[a.tier]}${a.hero ? ' · 전용' : ''}</div><div class="ic">${a.icon}</div><div class="nm">${esc(a.name)}</div><div class="ds">${esc(a.desc)}</div>`);
+      c.tabIndex = 0;
       c.addEventListener('click', () => this.cb.pickAug(i));
       c.addEventListener('mouseenter', () => audio.play('uiHover'));
       wrap.appendChild(c);
@@ -377,7 +380,11 @@ export class Hud {
     // 낙하 안내
     const dropping = match.phase === 0 && self.state === 0 && g.mode !== 'practice';
     this.dropHint.classList.toggle('hidden', !dropping);
-    if (dropping) this.setHtml(this.dropHint, `<div class="big glow-cyan">낙하 지점을 ${document.body.classList.contains('touch') ? '탭' : '클릭'}하세요</div><div class="dim">수송 드론 출발까지 ${Math.max(0, Math.ceil(DROP_PHASE_SEC - t))}초 · 원하는 위치를 ${document.body.classList.contains('touch') ? '탭' : '클릭'}하면 바로 낙하합니다</div>`);
+    if (dropping) {
+      const touch = document.body.classList.contains('touch');
+      const how = touch ? '원하는 위치를 탭하면 바로 낙하' : this.keyboardAim ? `${keyLabel(settings.keys.up)}${keyLabel(settings.keys.left)}${keyLabel(settings.keys.down)}${keyLabel(settings.keys.right)}로 표시를 옮기고 ${keyLabel(settings.keys.basic2)} 또는 ${keyLabel(settings.keys.dodge)}로 낙하` : '원하는 위치를 클릭하면 바로 낙하 (키보드: WASD로 이동 후 J/Space)';
+      this.setHtml(this.dropHint, `<div class="big glow-cyan">낙하 지점을 고르세요</div><div class="dim">수송 드론 출발까지 ${Math.max(0, Math.ceil(DROP_PHASE_SEC - t))}초 · ${how}</div>`);
+    }
 
     // 관전
     const dead = self.state === 3;

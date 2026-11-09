@@ -5,12 +5,17 @@ export interface Settings {
   keys: Record<string, string>;
   /** 터치 조작 표시: 자동(터치 기기면 켬) / 켜기 / 끄기 */
   touchMode: 'auto' | 'on' | 'off';
+  /** 조준 방식: 자동(마우스를 안 쓰면 키보드 자동 조준) / 마우스 / 키보드 자동 조준 */
+  aimMode: 'auto' | 'mouse' | 'keyboard';
+  /** 네온 빛 강도 0.2 ~ 1 */
+  neon: number;
 }
 
 export const ACTIONS: { id: string; label: string; group: string }[] = [
   { id: 'up', label: '위로 이동', group: '이동' }, { id: 'down', label: '아래로 이동', group: '이동' }, { id: 'left', label: '왼쪽 이동', group: '이동' }, { id: 'right', label: '오른쪽 이동', group: '이동' },
   { id: 'dodge', label: '구르기', group: '이동' },
-  { id: 'basic', label: '기본 공격 / 조준 확인', group: '전투' }, { id: 's1', label: '스킬 1', group: '전투' }, { id: 's2', label: '스킬 2', group: '전투' }, { id: 's3', label: '스킬 3 (이동기)', group: '전투' }, { id: 'ult', label: '궁극기', group: '전투' },
+  { id: 'basic', label: '기본 공격 / 조준 확인', group: '전투' }, { id: 'basic2', label: '기본 공격 (키보드)', group: '전투' },
+  { id: 's1', label: '스킬 1', group: '전투' }, { id: 's1b', label: '스킬 1 (키보드)', group: '전투' }, { id: 's2', label: '스킬 2', group: '전투' }, { id: 's3', label: '스킬 3 (이동기)', group: '전투' }, { id: 'ult', label: '궁극기', group: '전투' },
   { id: 'interact', label: '상호작용', group: '기타' }, { id: 'score', label: '점수판 (누르고 있기)', group: '기타' }, { id: 'chat', label: '채팅', group: '기타' }, { id: 'wheel', label: '퀵 채팅/감정 표현 (누르고 있기)', group: '기타' },
 ];
 
@@ -33,10 +38,13 @@ export function bindKey(action: string, code: string): { ok: boolean; swapped?: 
   return { ok: true, swapped: other };
 }
 
+/** 보조 키: 같은 동작을 하는 두 번째 키 (마우스 없이 키보드만으로 플레이) */
+export const KEY_ALIAS: Record<string, string> = { basic2: 'basic', s1b: 's1' };
+
 export function actionLabel(id: string) { return ACTIONS.find(a => a.id === id)?.label ?? id; }
 
 export const DEFAULT_KEYS: Record<string, string> = {
-  up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', basic: 'Mouse0', s1: 'Mouse2', s2: 'KeyQ', s3: 'KeyE', ult: 'KeyR',
+  up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', basic: 'Mouse0', basic2: 'KeyJ', s1: 'Mouse2', s1b: 'KeyK', s2: 'KeyQ', s3: 'KeyE', ult: 'KeyR',
   dodge: 'Space', interact: 'KeyF', score: 'Tab', chat: 'Enter', wheel: 'KeyT',
 };
 
@@ -48,7 +56,7 @@ export function guessQuality(): Quality {
 }
 
 export const settings: Settings = {
-  quality: guessQuality(), master: 0.8, music: 0.5, sfx: 0.8, smartCast: true, shake: true, dmgNumbers: true, chat: true, keys: { ...DEFAULT_KEYS }, touchMode: 'auto',
+  quality: guessQuality(), master: 0.8, music: 0.5, sfx: 0.8, smartCast: true, shake: true, dmgNumbers: true, chat: true, keys: { ...DEFAULT_KEYS }, touchMode: 'auto', aimMode: 'auto', neon: 0.55,
 };
 
 export function storageGet(key: string): string | null {

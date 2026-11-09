@@ -10,6 +10,7 @@ import { Input } from './game/input';
 import { TouchControls, prefersTouch } from './game/touch';
 import { EntType, HF, type SkillDef as SkDef } from '@neon/shared';
 import { Renderer3D } from './render/renderer';
+import { setNeon } from './render/shaders';
 import { WorldView } from './render/worldView';
 import { Hud } from './ui/hud';
 import { el, esc, hex, stars, skillIcon, heroGlyph, toast, augTip } from './ui/util';
@@ -48,18 +49,27 @@ class App {
   /** 터치 입력을 실제로 쓴 적이 있는지 (자동 모드 판단) */
   private touchSeen = prefersTouch();
   private stickyAim: { x: number; y: number; until: number } | null = null;
+  /** 키보드로 고르는 낙하 지점 */
+  private dropCursor = { x: 0, y: 0 };
   private soloLevel = 1;
   readonly offline = !!import.meta.env.VITE_OFFLINE;
   private scoreHeld = false;
 
   constructor() {
     loadSettings();
+    setNeon(settings.neon);
     const canvas = document.getElementById('gl') as HTMLCanvasElement;
     this.r3 = new Renderer3D(canvas);
     this.input = new Input(canvas);
     this.input.enabled = false;
     this.input.onKey = (code, e) => this.onKey(code, e);
     window.addEventListener('keyup', e => this.onKeyUp(e.code));
+    // 메뉴 키보드 탐색: Tab으로 이동, Enter/Space로 누르기 (div 카드 포함)
+    document.addEventListener('keydown', e => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || !(e.key === 'Enter' || e.key === ' ')) return;
+      if (el.getAttribute('role') === 'button' || el.classList.contains('aug-card')) { e.preventDefault(); el.click(); }
+    });
     document.addEventListener('pointerdown', e => {
       audio.init(); audio.applyVolumes(); music.start();
       if (e.pointerType === 'touch' && !this.touchSeen) { this.touchSeen = true; this.syncTouch(); }
@@ -236,6 +246,7 @@ class App {
       practice: w => local?.cheat(w),
     });
     this.match = { transport, game, world, hud, local, results: null, augments: [], spectator };
+    this.dropCursor = { x: 0, y: 0 };
     this.touch = new TouchControls(this.ui, {
       menu: () => this.toggleEscMenu(),
       score: () => hud.showScoreboard(!hud.scoreboardOpen),
@@ -333,6 +344,7 @@ class App {
     if (code === settings.keys.chat) { m.hud.openChat(); return true; }
     if (code === settings.keys.wheel && !e.repeat) { m.hud.toggleWheel(true); return true; }
     if (code === 'Escape') { const ko = this.ui.querySelector('.overlay.keys'); if (ko) ko.remove(); else if (this.input.aiming >= 0) this.input.aiming = -1; else this.toggleEscMenu(); return true; }
+    if (m.game.selfState === 3 && (code === 'ArrowLeft' || code === 'ArrowRight')) { this.cycleSpectate(code === 'ArrowLeft' ? -1 : 1); return true; }
     if (m.hud.offer && (code === 'Digit1' || code === 'Digit2' || code === 'Digit3')) { m.transport.send({ type: 'pickAug', idx: Number(code.slice(5)) - 1 }); audio.play('ui'); return true; }
     return false;
   }
@@ -394,6 +406,25 @@ class App {
       const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
       o?.lock?.('landscape').catch(() => {});
     }).catch(() => toast('이 브라우저에서는 전체 화면을 쓸 수 없습니다'));
+  }
+
+  /** 마우스 없이 키보드만 쓰는지 (설정 또는 최근 입력으로 판단) */
+  private useKeyboardAim(): boolean {
+    if (settings.aimMode === 'keyboard') return true;
+    if (settings.aimMode === 'mouse') return false;
+    const i = this.input;
+    return i.keyAt > 0 && (i.mouseAt === 0 || performance.now() - i.mouseAt > 2500) && i.keyAt > i.mouseAt;
+  }
+
+  /** 키보드 자동 조준: 가장 가까운 적 → 없으면 이동 방향 → 바라보던 방향 */
+  private keyboardAimAt(g: ClientGame) {
+    const me = g.view.get(g.you);
+    if (!me) return;
+    const tgt = this.autoTarget(g, 14);
+    if (tgt) { g.aimX = tgt.x; g.aimY = tgt.y; return; }
+    const mv = this.input.moveVector();
+    if (Math.hypot(mv.x, mv.y) > 0.2) { g.aimX = me.x + mv.x * 5; g.aimY = me.y + mv.y * 5; }
+    else if (Math.hypot(g.aimX - me.x, g.aimY - me.y) < 0.5 || Math.hypot(g.aimX - me.x, g.aimY - me.y) > 20) { g.aimX = me.x + Math.cos(me.a) * 5; g.aimY = me.y + Math.sin(me.a) * 5; }
   }
 
   /** 터치 조작 켜기/끄기 (설정 + 기기 판단) */
@@ -464,8 +495,24 @@ class App {
     const m = this.match;
     if (m) {
       const g = m.game;
-      if (this.touch?.enabled) this.touchAim(g);
-      else { const p = this.r3.screenToGround(this.input.mouseX, this.input.mouseY); g.aimX = p.x; g.aimY = p.y; }
+      const kbAim = this.useKeyboardAim();
+      this.input.keyboardAim = kbAim;
+      const droppingNow = g.match?.phase === 0 && g.selfState === 0 && g.mode !== 'practice';
+      if (droppingNow && kbAim && !this.touch?.enabled) {
+        // 키보드 낙하: WASD로 커서 이동, J 또는 Space로 낙하
+        const mv = this.input.moveVector();
+        this.dropCursor.x += mv.x * 26 * dt; this.dropCursor.y += mv.y * 26 * dt;
+        const dl = Math.hypot(this.dropCursor.x, this.dropCursor.y);
+        if (dl > 38) { this.dropCursor.x *= 38 / dl; this.dropCursor.y *= 38 / dl; }
+        g.aimX = this.dropCursor.x; g.aimY = this.dropCursor.y;
+        m.world.setDropMarker(this.dropCursor.x, this.dropCursor.y);
+      } else {
+        m.world.setDropMarker(null, null);
+        if (this.touch?.enabled) this.touchAim(g);
+        else if (kbAim) this.keyboardAimAt(g);
+        else { const p = this.r3.screenToGround(this.input.mouseX, this.input.mouseY); g.aimX = p.x; g.aimY = p.y; }
+      }
+      m.hud.keyboardAim = kbAim;
       const wheel = this.input.takeWheel();
       if (wheel) m.world.zoom = Math.max(0.78, Math.min(1.3, m.world.zoom + wheel * 0.06));
       // 낙하 단계에는 넓게 보기
@@ -584,7 +631,7 @@ class App {
           <div class="row" style="margin-top:10px"><input class="field grow" id="roomCode" maxlength="4" placeholder="코드 4자리" inputmode="numeric"><button class="btn" data-act="join-room">참가</button></div>
         </div>
         <div class="panel profile-card" style="font-size:13px;line-height:1.7">
-          ${document.body.classList.contains('coarse') ? '<b>터치 조작</b><br><span class="dim">왼쪽 아무 곳: 이동 조이스틱 · 오른쪽 버튼: 공격/스킬<br>버튼을 탭하면 가까운 적에게 자동 조준, 끌면 직접 조준 후 떼면 시전 (✕로 끌어 취소)<br>빈 곳 탭: 그 방향으로 공격 · ↻ 구르기 · F 상호작용</span><br><br>' : ''}<b>조작</b> <button class="btn small ghost" data-act="settings" style="float:right;padding:2px 8px">변경</button><br><span class="dim">${['up', 'left', 'down', 'right'].map(a => esc(keyLabel(settings.keys[a]))).join('')} 이동 · 마우스 조준 · ${esc(keyLabel(settings.keys.basic))} 기본 공격<br>${['s1', 's2', 's3', 'ult'].map(a => esc(keyLabel(settings.keys[a]))).join('/')} 스킬 · ${esc(keyLabel(settings.keys.dodge))} 구르기 · ${esc(keyLabel(settings.keys.interact))} 상호작용<br>${esc(keyLabel(settings.keys.score))} 점수판 · ${esc(keyLabel(settings.keys.chat))} 채팅 · ${esc(keyLabel(settings.keys.wheel))} 퀵 채팅 · F3 디버그</span>
+          ${document.body.classList.contains('coarse') ? '<b>터치 조작</b><br><span class="dim">왼쪽 아무 곳: 이동 조이스틱 · 오른쪽 버튼: 공격/스킬<br>버튼을 탭하면 가까운 적에게 자동 조준, 끌면 직접 조준 후 떼면 시전 (✕로 끌어 취소)<br>빈 곳 탭: 그 방향으로 공격 · ↻ 구르기 · F 상호작용</span><br><br>' : ''}<b>조작</b> <button class="btn small ghost" data-act="settings" style="float:right;padding:2px 8px">변경</button><br><span class="dim">${['up', 'left', 'down', 'right'].map(a => esc(keyLabel(settings.keys[a]))).join('')} 이동 · 마우스 조준 · ${esc(keyLabel(settings.keys.basic))} 기본 공격<br>${['s1', 's2', 's3', 'ult'].map(a => esc(keyLabel(settings.keys[a]))).join('/')} 스킬 · ${esc(keyLabel(settings.keys.dodge))} 구르기 · ${esc(keyLabel(settings.keys.interact))} 상호작용<br>${esc(keyLabel(settings.keys.score))} 점수판 · ${esc(keyLabel(settings.keys.chat))} 채팅 · ${esc(keyLabel(settings.keys.wheel))} 퀵 채팅 · F3 디버그<br><b style="color:var(--text)">마우스 없이</b>: ${esc(keyLabel(settings.keys.basic2))} 기본 공격 · ${esc(keyLabel(settings.keys.s1b))} 스킬 1 · 가장 가까운 적 자동 조준 · 메뉴는 Tab/Enter</span>
         </div>
       </div>`;
   }
@@ -644,7 +691,7 @@ class App {
     return `<div style="color:${hex(h.color)};font-size:30px;font-weight:900">${h.name}</div>
       <div class="dim">${h.title} · <span class="tag">${ROLE_NAMES[h.role]}</span> · 난이도 <span class="stars">${stars(h.difficulty)}</span></div>
       <p class="dim" style="font-size:13px;line-height:1.5">${h.lore}</p>
-      <div class="skill-list">${sk.map((s, i) => `<div class="skill-row" data-skill="${i}"><div class="skill-key">${withKeys ? esc(keyLabel(settings.keys[keys[i]])) : ''} ${skillIcon(s, i)}</div><div><b>${s.name}</b>${i === 4 ? ' <span class="tag">궁극기</span>' : i === 3 ? ' <span class="tag">이동기</span>' : ''} <span class="dim" style="font-size:12px">${i === 4 ? '' : `쿨 ${s.cd}초`}</span><div class="dim" style="font-size:12px">${s.desc}</div></div></div>`).join('')}</div>`;
+      <div class="skill-list">${sk.map((s, i) => `<div class="skill-row" tabindex="0" role="button" data-skill="${i}"><div class="skill-key">${withKeys ? esc(keyLabel(settings.keys[keys[i]])) : ''} ${skillIcon(s, i)}</div><div><b>${s.name}</b>${i === 4 ? ' <span class="tag">궁극기</span>' : i === 3 ? ' <span class="tag">이동기</span>' : ''} <span class="dim" style="font-size:12px">${i === 4 ? '' : `쿨 ${s.cd}초`}</span><div class="dim" style="font-size:12px">${s.desc}</div></div></div>`).join('')}</div>`;
   }
 
   private renderSelect(s: HTMLElement) {
@@ -655,7 +702,7 @@ class App {
     s.classList.add('select');
     s.innerHTML = `<div class="col" style="width:520px">
         <div class="row"><h2 style="margin:0" class="glow-cyan">영웅 선택</h2><div class="grow"></div><div class="timer-big glow-pink" id="selTimer">${sel.timeLeft}</div></div>
-        <div class="hero-grid">${HEROES.map(h => `<div class="hero-card ${h.id === hero.id ? 'sel' : ''}" data-hero="${h.id}" style="--hc:${hex(h.color)}"><div class="glyph">${heroGlyph(h.id)}</div><div class="nm" style="color:${hex(h.color)}">${h.name}</div><div class="rl">${ROLE_NAMES[h.role]}</div><div class="stars" style="font-size:12px">${stars(h.difficulty)}</div></div>`).join('')}</div>
+        <div class="hero-grid">${HEROES.map(h => `<div class="hero-card ${h.id === hero.id ? 'sel' : ''}" tabindex="0" role="button" data-hero="${h.id}" style="--hc:${hex(h.color)}"><div class="glyph">${heroGlyph(h.id)}</div><div class="nm" style="color:${hex(h.color)}">${h.name}</div><div class="rl">${ROLE_NAMES[h.role]}</div><div class="stars" style="font-size:12px">${stars(h.difficulty)}</div></div>`).join('')}</div>
         <div class="panel" style="padding:12px"><div class="dim" style="font-size:12px;margin-bottom:6px">참가자 (같은 영웅 중복 선택 가능)</div><div class="pick-list" id="picks"></div></div>
       </div>
       <div class="grow"></div>
@@ -762,6 +809,9 @@ class App {
         <span>배경음악</span><input type="range" class="slider" min="0" max="1" step="0.05" value="${settings.music}" data-vol="music">
         <span>효과음</span><input type="range" class="slider" min="0" max="1" step="0.05" value="${settings.sfx}" data-vol="sfx">
         <span>스마트 시전</span><label class="row"><input type="checkbox" data-toggle="smartCast" ${settings.smartCast ? 'checked' : ''}> 키를 누르는 즉시 시전 (끄면 범위 확인 후 ${esc(keyLabel(settings.keys.basic))})</label>
+        <span>네온 빛 강도</span><input type="range" class="slider" min="0.2" max="1" step="0.05" value="${settings.neon}" data-neon>
+        <span>조준 방식</span><div class="row" style="flex-wrap:wrap">${(['auto', 'mouse', 'keyboard'] as const).map(x => `<button class="tab ${settings.aimMode === x ? 'on' : ''}" data-aimmode="${x}">${{ auto: '자동', mouse: '마우스', keyboard: '키보드 자동 조준' }[x]}</button>`).join('')}</div>
+        <span></span><span class="dim" style="font-size:12px">자동: 마우스를 쓰면 마우스로 조준하고, 마우스 없이 키보드만 쓰면 가장 가까운 적을 자동으로 조준합니다.</span>
         <span>터치 조작</span><div class="row" style="flex-wrap:wrap">${(['auto', 'on', 'off'] as const).map(x => `<button class="tab ${settings.touchMode === x ? 'on' : ''}" data-touchmode="${x}">${{ auto: '자동', on: '켜기', off: '끄기' }[x]}</button>`).join('')}</div>
         <span>화면 흔들림</span><label class="row"><input type="checkbox" data-toggle="shake" ${settings.shake ? 'checked' : ''}> 사용</label>
         <span>데미지 숫자</span><label class="row"><input type="checkbox" data-toggle="dmgNumbers" ${settings.dmgNumbers ? 'checked' : ''}> 표시</label>
@@ -772,6 +822,7 @@ class App {
       <div class="row" style="margin-top:14px"><button class="btn small ghost" data-act="reset-keys">키 전체 초기화</button><div class="grow"></div><button class="btn" data-act="lobby">돌아가기</button></div>
     </div>`;
     setTimeout(() => {
+      s.querySelector('[data-neon]')?.addEventListener('input', e => { settings.neon = Number((e.target as HTMLInputElement).value); setNeon(settings.neon); saveSettings(); });
       s.querySelectorAll('[data-vol]').forEach(i => i.addEventListener('input', () => { (settings as unknown as Record<string, number>)[(i as HTMLInputElement).dataset.vol!] = Number((i as HTMLInputElement).value); audio.applyVolumes(); saveSettings(); }));
       s.querySelectorAll('[data-toggle]').forEach(i => i.addEventListener('change', () => { (settings as unknown as Record<string, boolean>)[(i as HTMLInputElement).dataset.toggle!] = (i as HTMLInputElement).checked; saveSettings(); }));
     }, 0);
@@ -782,7 +833,7 @@ class App {
     s.classList.add('select');
     s.innerHTML = `<div class="col" style="width:520px">
       <h2 style="margin:0" class="glow-cyan">영웅 도감</h2>
-      <div class="hero-grid">${HEROES.map(x => `<div class="hero-card ${x.id === h.id ? 'sel' : ''}" data-codex="${x.id}" style="--hc:${hex(x.color)}"><div class="glyph">${heroGlyph(x.id)}</div><div class="nm" style="color:${hex(x.color)}">${x.name}</div><div class="rl">${ROLE_NAMES[x.role]}</div><div class="stars" style="font-size:12px">${stars(x.difficulty)}</div></div>`).join('')}</div>
+      <div class="hero-grid">${HEROES.map(x => `<div class="hero-card ${x.id === h.id ? 'sel' : ''}" tabindex="0" role="button" data-codex="${x.id}" style="--hc:${hex(x.color)}"><div class="glyph">${heroGlyph(x.id)}</div><div class="nm" style="color:${hex(x.color)}">${x.name}</div><div class="rl">${ROLE_NAMES[x.role]}</div><div class="stars" style="font-size:12px">${stars(x.difficulty)}</div></div>`).join('')}</div>
       <div class="panel" style="padding:12px;font-size:13px"><b>전용 증강</b>${Object.values(AUGMENT_BY_ID).filter(a => a.hero === h.id).map(a => `<div style="margin-top:6px"><span class="aug-ic ${a.tier}" style="display:inline-grid;width:24px;height:24px;font-size:13px">${a.icon}</span> <b>${a.name}</b> <span class="dim">(${TIER_NAMES[a.tier]}) ${a.desc}</span></div>`).join('')}</div>
       <div class="row"><button class="btn ghost" data-act="lobby">돌아가기</button></div>
     </div><div class="grow"></div>
@@ -820,6 +871,7 @@ class App {
       this.conn.send({ type: 'equip', kind: kind as 'palette', hero: kind === 'palette' || kind === 'skin' ? this.shopHero : undefined, idx: Number(idx) });
       audio.play('ui'); return;
     }
+    if (t.dataset.aimmode) { settings.aimMode = t.dataset.aimmode as 'auto'; saveSettings(); audio.play('ui'); this.render(); return; }
     if (t.dataset.touchmode) { settings.touchMode = t.dataset.touchmode as 'auto'; saveSettings(); this.syncTouch(); audio.play('ui'); this.render(); return; }
     if (t.dataset.fullscreen !== undefined) { this.toggleFullscreen(); return; }
     if (t.dataset.sololevel) { this.soloLevel = Number(t.dataset.sololevel); audio.play('ui'); this.render(); return; }

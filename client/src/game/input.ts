@@ -1,5 +1,5 @@
 import { Btn } from '@neon/shared';
-import { settings } from '../settings';
+import { settings, KEY_ALIAS } from '../settings';
 import type { TouchControls } from './touch';
 
 /** 키보드/마우스 상태와 스마트 시전 처리 */
@@ -24,16 +24,22 @@ export class Input {
     window.addEventListener('mouseup', e => { this.down.delete('Mouse' + e.button); if (e.button >= 3 && this.actionOf('Mouse' + e.button)) e.preventDefault(); });
     // 마우스 4/5 버튼에 기능을 지정했을 때 브라우저 뒤로/앞으로 이동 방지
     el.addEventListener('auxclick', e => { if (this.actionOf('Mouse' + e.button)) e.preventDefault(); });
-    window.addEventListener('mousemove', e => { this.mouseX = e.clientX; this.mouseY = e.clientY; });
+    window.addEventListener('mousemove', e => { if (Math.abs(e.movementX) + Math.abs(e.movementY) > 0) this.mouseAt = performance.now(); this.mouseX = e.clientX; this.mouseY = e.clientY; });
     el.addEventListener('contextmenu', e => e.preventDefault());
     el.addEventListener('wheel', e => { this.wheel += Math.sign(e.deltaY); e.preventDefault(); }, { passive: false });
     window.addEventListener('blur', () => { this.down.clear(); });
   }
 
   private actionOf(code: string): string | null {
-    for (const [a, c] of Object.entries(settings.keys)) if (c === code) return a;
+    for (const [a, c] of Object.entries(settings.keys)) if (c === code) return KEY_ALIAS[a] ?? a;
     return null;
   }
+
+  /** 마지막으로 마우스를 움직인/게임 키를 누른 시각 (키보드 전용 조준 판단) */
+  mouseAt = 0;
+  keyAt = 0;
+  /** 키보드 자동 조준 중이면 범위 확인 단계 없이 바로 시전 */
+  keyboardAim = false;
 
   private keyDown(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement)?.tagName;
@@ -41,7 +47,7 @@ export class Input {
     if (this.onKey(e.code, e)) { e.preventDefault(); return; }
     if (!this.enabled) return;
     // 게임 키로 쓰이는 키는 브라우저 기본 동작(스크롤, 포커스 이동 등)을 막는다
-    if (e.code === 'F3' || this.actionOf(e.code)) e.preventDefault();
+    if (e.code === 'F3' || this.actionOf(e.code)) { e.preventDefault(); this.keyAt = performance.now(); }
     if (e.repeat) return;
     this.down.add(e.code);
     this.press(e.code);
@@ -51,6 +57,7 @@ export class Input {
     if (!this.enabled) return;
     const code = 'Mouse' + e.button;
     this.down.add(code);
+    this.mouseAt = performance.now();
     if (e.button >= 1) e.preventDefault();
     // 조준 중: 기본 공격 키(기본 좌클릭)로 확인, 기능이 없는 마우스 버튼(기본 우클릭)으로 취소
     if (this.aiming >= 0 && code !== settings.keys.basic && !this.actionOf(code)) { this.aiming = -1; return; }
@@ -79,7 +86,7 @@ export class Input {
     const slotMap: Record<string, number> = { s1: 1, s2: 2, s3: 3, ult: 4 };
     if (a in slotMap) {
       const slot = slotMap[a];
-      if (!settings.smartCast && !this.isChargeSlot(slot)) {
+      if (!settings.smartCast && !this.keyboardAim && !this.isChargeSlot(slot)) {
         if (this.aiming === slot) { this.latched |= [0, Btn.S1, Btn.S2, Btn.S3, Btn.Ult][slot]; this.aiming = -1; }
         else this.aiming = slot;
         return;
@@ -92,7 +99,11 @@ export class Input {
 
   isChargeSlot: (slot: number) => boolean = () => false;
 
-  isDown(action: string) { return this.down.has(settings.keys[action]); }
+  isDown(action: string) {
+    if (this.down.has(settings.keys[action])) return true;
+    for (const [alt, base] of Object.entries(KEY_ALIAS)) if (base === action && this.down.has(settings.keys[alt])) return true;
+    return false;
+  }
 
   moveVector(): { x: number; y: number } {
     if (!this.enabled) return { x: 0, y: 0 };

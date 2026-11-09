@@ -50,7 +50,7 @@ input, select { font: inherit; }
 .logo { font-size: clamp(48px, 9vw, 110px); font-weight: 900; letter-spacing: 8px; line-height: 1; }
 .logo small { display: block; font-size: .22em; letter-spacing: 14px; color: var(--cyan); text-shadow: 0 0 10px var(--cyan); margin-top: 12px; font-weight: 600; }
 .title-wrap { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 26px; padding: 40px 60px; max-width: 100%; box-sizing: border-box; background: radial-gradient(ellipse at center, rgba(5,2,14,.82) 0%, rgba(5,2,14,.55) 55%, rgba(5,2,14,0) 75%); }
-.screen.center::before, .screen.lobby::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(5,2,14,.35), rgba(5,2,14,.7)); pointer-events: none; z-index: -1; }
+.screen.center::before, .screen.lobby::before { content: ''; position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(5,2,14,.35), rgba(5,2,14,.7)); pointer-events: none; z-index: -1; }
 .lore { max-width: min(560px, 100%); color: var(--dim); line-height: 1.6; font-size: 15px; }
 
 .lobby { padding: 32px; gap: 28px; align-items: flex-start; }
@@ -349,3 +349,17 @@ body.touch .chat-input { left: 50%; transform: translateX(-50%); bottom: auto; t
 .lvl-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--purple), var(--cyan)); }
 .acc-lv { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--cyan); color: var(--cyan); font-size: 12px; font-weight: 800; margin-right: 6px; }
 .menu .btn small.soon { color: var(--yellow); }
+
+/* 높이가 낮은 화면(태블릿 가로 등): 로비 메뉴 2열로 스크롤 없이 */
+@media (max-height: 820px) and (min-width: 600px) {
+  .lobby { padding: 16px 20px; gap: 18px; }
+  .lobby .logo { font-size: 34px !important; margin-bottom: 0 !important; }
+  .menu { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: min(600px, 52vw); }
+  .menu .btn { font-size: 16px; padding: 10px 14px; }
+  .menu .btn small { font-size: 11px; }
+  .profile-card { padding: 12px 14px; font-size: 13px; }
+}
+/* 키보드 포커스 표시 */
+.btn:focus-visible, .tab:focus-visible, .hero-card:focus-visible, .skill-row:focus-visible, .aug-card:focus-visible, .field:focus-visible, .tc-mini:focus-visible {
+  outline: 2px solid var(--yellow); outline-offset: 3px;
+}

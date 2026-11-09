@@ -30,7 +30,7 @@ export class Post {
     this.quad.frustumCulled = false;
     this.qScene.add(this.quad);
     this.brightMat = new THREE.ShaderMaterial({
-      uniforms: { tDiffuse: { value: null }, uThreshold: { value: 0.95 } },
+      uniforms: { tDiffuse: { value: null }, uThreshold: { value: 1.05 } },
       vertexShader: FS_VERT,
       fragmentShader: /* glsl */ `uniform sampler2D tDiffuse; uniform float uThreshold; varying vec2 vUv;
         void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb; float l = max(c.r, max(c.g, c.b)); float k = smoothstep(uThreshold, uThreshold + 0.6, l); gl_FragColor = vec4(min(c * k, vec3(12.0)), 1.0); }`,

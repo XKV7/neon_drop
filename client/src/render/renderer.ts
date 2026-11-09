@@ -167,6 +167,8 @@ export class Renderer3D {
     const u = this.post.compMat.uniforms;
     this.hurt = Math.max(0, this.hurt - dt * 2.5);
     u.uHurt.value = this.hurt; u.uLowHp.value = this.lowHp; u.uOutside.value = this.outside;
+    // 네온 강도에 따라 빛 번짐도 함께 줄인다
+    u.uBloom.value = 0.3 + 0.5 * G.uNeon.value;
     if (this.mode === 'world' && this.world) {
       this.world.update(dt);
       this.world.renderAux(this.renderer);
