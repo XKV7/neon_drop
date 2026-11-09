@@ -498,6 +498,7 @@ class App {
       const kbAim = this.useKeyboardAim();
       this.input.keyboardAim = kbAim;
       const droppingNow = g.match?.phase === 0 && g.selfState === 0 && g.mode !== 'practice';
+      this.touch?.setDropMode(droppingNow);
       if (droppingNow && kbAim && !this.touch?.enabled) {
         // 키보드 낙하: WASD로 커서 이동, J 또는 Space로 낙하
         const mv = this.input.moveVector();

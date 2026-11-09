@@ -34,6 +34,8 @@ export class TouchControls {
   private cancelEl: HTMLElement;
   private chargeSlots = new Set<number>();
   private cb: TouchCallbacks;
+  /** 낙하 단계: 조이스틱·스킬 버튼을 숨기고 화면 어디를 탭하든 낙하 지점 */
+  dropMode = false;
 
   constructor(parent: HTMLElement, cb: TouchCallbacks) {
     this.cb = cb;
@@ -81,6 +83,13 @@ export class TouchControls {
   }
 
   destroy() { this.root.remove(); document.body.classList.remove('touch'); }
+
+  setDropMode(on: boolean) {
+    if (on === this.dropMode) return;
+    this.dropMode = on;
+    this.root.classList.toggle('drop', on);
+    if (on) { this.joy = null; this.move = { x: 0, y: 0 }; this.joyBase.classList.add('hidden'); }
+  }
 
   reset() { this.joy = null; this.drag = null; this.held = 0; this.latched = 0; this.move = { x: 0, y: 0 }; this.joyBase.classList.add('hidden'); this.cancelEl.classList.add('hidden'); }
 
@@ -132,7 +141,7 @@ export class TouchControls {
   private layerDown(e: PointerEvent) {
     if (e.target !== this.root) return;
     e.preventDefault();
-    if (e.clientX < innerWidth * 0.5 && !this.joy) {
+    if (!this.dropMode && e.clientX < innerWidth * 0.5 && !this.joy) {
       this.joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY };
       this.joyBase.style.left = e.clientX + 'px'; this.joyBase.style.top = e.clientY + 'px';
       this.joyBase.classList.remove('hidden');

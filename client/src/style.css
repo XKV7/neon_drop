@@ -363,3 +363,6 @@ body.touch .chat-input { left: 50%; transform: translateX(-50%); bottom: auto; t
 .btn:focus-visible, .tab:focus-visible, .hero-card:focus-visible, .skill-row:focus-visible, .aug-card:focus-visible, .field:focus-visible, .tc-mini:focus-visible {
   outline: 2px solid var(--yellow); outline-offset: 3px;
 }
+
+/* 낙하 단계: 조이스틱·스킬 버튼 숨김 (화면 전체가 낙하 지점 탭 영역) */
+.touch-layer.drop .tc-btn, .touch-layer.drop .tc-joy, .touch-layer.drop .tc-cancel { display: none !important; }
