@@ -366,3 +366,10 @@ body.touch .chat-input { left: 50%; transform: translateX(-50%); bottom: auto; t
 
 /* 낙하 단계: 조이스틱·스킬 버튼 숨김 (화면 전체가 낙하 지점 탭 영역) */
 .touch-layer.drop .tc-btn, .touch-layer.drop .tc-joy, .touch-layer.drop .tc-cancel { display: none !important; }
+
+/* 낙하 지점 글자 표시 */
+.drop-label { position: absolute; left: 0; top: 0; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 2px; z-index: 5; text-align: center; white-space: nowrap; }
+.drop-label b { font-size: 18px; font-weight: 900; color: #ffe14d; letter-spacing: 2px; text-shadow: 0 0 10px rgba(255,225,77,.9), 0 2px 4px #000; padding: 2px 10px; border: 2px solid #ffe14d; border-radius: 8px; background: rgba(10,5,25,.75); }
+.drop-label span { font-size: 12px; color: #fff; text-shadow: 0 1px 3px #000; background: rgba(10,5,25,.6); padding: 1px 6px; border-radius: 4px; }
+.drop-label i { font-style: normal; font-size: 22px; color: #ff6bf1; text-shadow: 0 0 8px #ff6bf1; animation: dropBob .6s ease-in-out infinite alternate; }
+@keyframes dropBob { from { transform: translateY(0); } to { transform: translateY(6px); } }

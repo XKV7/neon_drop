@@ -279,6 +279,7 @@ class App {
   }
 
   private endMatch() {
+    this.showDropLabel(null, 0);
     if (!this.match) return;
     this.match.local?.stop();
     this.match.world.dispose();
@@ -450,6 +451,20 @@ class App {
     if (tgt) { g.aimX = tgt.x; g.aimY = tgt.y; }
   }
 
+  /** 낙하 지점 위에 뜨는 글자 표시 */
+  private dropLabel: HTMLElement | null = null;
+  private showDropLabel(x: number | null, y: number) {
+    if (x === null) { this.dropLabel?.remove(); this.dropLabel = null; return; }
+    if (!this.dropLabel || !this.dropLabel.isConnected) {
+      this.dropLabel = el('div', 'drop-label', `<b>낙하 지점</b><span>${this.touch?.enabled ? '탭한 곳으로 낙하' : `${esc(keyLabel(settings.keys.basic2))} / ${esc(keyLabel(settings.keys.dodge))} 로 낙하`}</span><i>▼</i>`);
+      this.ui.appendChild(this.dropLabel);
+    }
+    const p = this.r3.worldToScreen(x, y, 5);
+    // 화면 가장자리에서는 글자가 잘리지 않게 안쪽으로 붙인다
+    const px = Math.max(80, Math.min(window.innerWidth - 80, p.x)), py = Math.max(80, Math.min(window.innerHeight - 20, p.y));
+    this.dropLabel.style.transform = `translate(${px.toFixed(0)}px, ${py.toFixed(0)}px) translate(-50%, -100%)`;
+  }
+
   /** 터치 조작 켜기/끄기 (설정 + 기기 판단) */
   syncTouch() {
     const on = settings.touchMode === 'on' || (settings.touchMode === 'auto' && this.touchSeen);
@@ -544,8 +559,10 @@ class App {
         if (this.touch?.enabled && this.touch.tap) this.touchAim(g); // 탭 → 기본 공격(낙하) 래치
         g.aimX = this.dropCursor.x; g.aimY = this.dropCursor.y;
         m.world.setDropMarker(this.dropCursor.x, this.dropCursor.y);
+        this.showDropLabel(this.dropCursor.x, this.dropCursor.y);
       } else {
         m.world.setDropMarker(null, null);
+        this.showDropLabel(null, 0);
         if (this.touch?.enabled) this.touchAim(g);
         else if (kbAim) this.keyboardAimAt(g);
         else { const p = this.r3.screenToGround(this.input.mouseX, this.input.mouseY); g.aimX = p.x; g.aimY = p.y; }
@@ -556,7 +573,12 @@ class App {
       if (wheel) m.world.zoom = Math.max(0.78, Math.min(1.3, m.world.zoom + wheel * 0.06));
       // 낙하 단계에는 넓게 보기
       const dropping = g.match?.phase === 0 && g.selfState === 0 && g.mode !== 'practice';
-      if (dropping) { m.world.zoom += (2.4 - m.world.zoom) * 0.08; m.world.camX *= 0.95; m.world.camZ *= 0.95; }
+      if (dropping) {
+        m.world.zoom += (2.4 - m.world.zoom) * 0.08;
+        // 낙하 표시가 화면 밖으로 나가지 않게 카메라가 표시 쪽으로 따라간다
+        const tx = this.dropLabel ? this.dropCursor.x * 0.6 : 0, tz = this.dropLabel ? this.dropCursor.y * 0.6 : 0;
+        m.world.camX += (tx - m.world.camX) * 0.06; m.world.camZ += (tz - m.world.camZ) * 0.06;
+      }
       else if (m.world.zoom > 1.3) m.world.zoom += (1.0 - m.world.zoom) * 0.06;
       g.update(dt * 1000);
       m.hud.aiming = this.input.aiming;

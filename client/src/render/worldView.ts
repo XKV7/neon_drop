@@ -432,13 +432,61 @@ export class WorldView {
   }
 
   private dropMarker: THREE.Mesh | null = null;
-  /** 키보드 낙하 지점 표시 */
+  /** 낙하 지점 비콘: 하늘까지 닿는 빛 기둥 + 큰 고리 + 위아래로 움직이는 화살표 */
+  private dropBeacon: THREE.Group | null = null;
+  private buildDropBeacon(): THREE.Group {
+    const g = new THREE.Group();
+    const beamMat = glowMaterial(0xffe14d, 1.6, { additive: true, opacity: 0.35 });
+    beamMat.depthWrite = false; beamMat.transparent = true; beamMat.side = THREE.DoubleSide;
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.8, 12, 20, 1, true), beamMat);
+    beam.position.y = 6; g.add(beam);
+    const coreMat = glowMaterial(0xffffff, 1.8, { additive: true, opacity: 0.6 });
+    coreMat.depthWrite = false; coreMat.transparent = true;
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 12, 8, 1, true), coreMat);
+    core.position.y = 6; g.add(core);
+    const ringMat = glowMaterial(0xffe14d, 2.6, { additive: true });
+    ringMat.depthWrite = false; ringMat.transparent = true;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.16, 8, 48), ringMat);
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.15; ring.name = 'ring'; g.add(ring);
+    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.1, 8, 40), ringMat);
+    ring2.rotation.x = Math.PI / 2; ring2.position.y = 0.15; ring2.name = 'ring2'; g.add(ring2);
+    const arrowMat = glowMaterial(0xff6bf1, 2.6, { additive: true });
+    arrowMat.depthWrite = false; arrowMat.transparent = true;
+    const arrows = new THREE.Group(); arrows.name = 'arrows';
+    for (let i = 0; i < 4; i++) {
+      const a = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.4, 4), arrowMat);
+      const ang = (i / 4) * Math.PI * 2;
+      a.position.set(Math.cos(ang) * 4.2, 1.2, Math.sin(ang) * 4.2);
+      a.rotation.z = Math.PI; // 아래를 가리킨다
+      arrows.add(a);
+    }
+    g.add(arrows);
+    // 건물·수송 드론에 가려지지 않게 항상 맨 위에 그린다
+    g.traverse(o => { const mesh = o as THREE.Mesh; if (mesh.isMesh) { (mesh.material as THREE.Material).depthTest = false; mesh.renderOrder = 999; } });
+    return g;
+  }
+
+  /** 낙하 지점 표시 */
   setDropMarker(x: number | null, y: number | null) {
-    if (x === null || y === null) { if (this.dropMarker) { this.decals.release(this.dropMarker); this.dropMarker = null; } return; }
+    if (x === null || y === null) {
+      if (this.dropMarker) { this.decals.release(this.dropMarker); this.dropMarker = null; }
+      if (this.dropBeacon) this.dropBeacon.visible = false;
+      return;
+    }
     if (!this.dropMarker) this.dropMarker = this.decals.get(0);
     const mat = this.dropMarker.material as THREE.ShaderMaterial;
     mat.uniforms.uKind.value = 5; mat.uniforms.uColor.value.copy(CYAN); mat.uniforms.uAlpha.value = 1; mat.uniforms.uProgress.value = 0;
-    this.decals.place(this.dropMarker, 0, x, y, { r: 2.2 + Math.sin(this.time * 6) * 0.2, y: 0.08 });
+    this.decals.place(this.dropMarker, 0, x, y, { r: 2.6 + Math.sin(this.time * 6) * 0.3, y: 0.08 });
+    if (!this.dropBeacon) { this.dropBeacon = this.buildDropBeacon(); this.scene.add(this.dropBeacon); }
+    const b = this.dropBeacon;
+    b.visible = true;
+    b.position.set(x, 0, y);
+    const t = this.time;
+    const ring = b.getObjectByName('ring')!, ring2 = b.getObjectByName('ring2')!, arrows = b.getObjectByName('arrows')!;
+    const pulse = 1 + Math.sin(t * 5) * 0.12;
+    ring.scale.setScalar(pulse); ring2.scale.setScalar(2 - pulse);
+    arrows.rotation.y = t * 1.5;
+    arrows.position.y = Math.abs(Math.sin(t * 4)) * 1.2;
   }
 
   setAim(slot: number, def: SkillDef | null, ax: number, ay: number) {
