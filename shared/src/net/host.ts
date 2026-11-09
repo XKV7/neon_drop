@@ -148,7 +148,15 @@ export class MatchHost {
     if (c && t && t.state !== 'dead') c.spectate = target;
   }
 
-  step() {
+  /** 스냅샷을 건너뛴 틱의 이벤트 (다음 스냅샷에 함께 보낸다) */
+  private carryEvents: SimEvent[] = [];
+  private stepEvents: SimEvent[] = [];
+
+  /**
+   * 한 틱 진행. send=false면 스냅샷 전송을 건너뛴다 — 서버가 CPU 부족으로 밀려
+   * 여러 틱을 한꺼번에 따라잡을 때 마지막 틱만 보내 대역폭·CPU를 아낀다.
+   */
+  step(send = true) {
     const m = this.match, w = m.w;
     // 입력 적용 (틱당 1개, 밀리면 2개 합치기)
     for (const c of this.clients.values()) {
@@ -166,9 +174,14 @@ export class MatchHost {
     m.step();
     for (const msg of w.msgs) this.routeMsg(msg);
     w.msgs.length = 0;
-    this.buildGlobal();
-    for (const c of this.clients.values()) if (c.connected) this.sendSnapshot(c);
-    for (const c of this.spectators.values()) this.sendSnapshot(c);
+    if (!send) { for (const e of w.events) this.carryEvents.push(e); if (this.carryEvents.length > 600) this.carryEvents.splice(0, this.carryEvents.length - 600); }
+    else {
+      this.buildGlobal();
+      this.stepEvents = this.carryEvents.length ? [...this.carryEvents, ...w.events] : w.events;
+      for (const c of this.clients.values()) if (c.connected) this.sendSnapshot(c);
+      for (const c of this.spectators.values()) this.sendSnapshot(c);
+      this.carryEvents = [];
+    }
     if (w.tick % 30 === 0) {
       const sb = { type: 'scoreboard', rows: m.scoreboard() };
       for (const c of this.clients.values()) if (c.connected) c.sendJson(sb);
@@ -317,7 +330,7 @@ export class MatchHost {
     // 이벤트 필터
     const R = VIEW_RADIUS + 5;
     const evs: SimEvent[] = [];
-    for (const e of w.events) {
+    for (const e of this.stepEvents) {
       const near = (e.x - ox) ** 2 + (e.y - oy) ** 2 < R * R;
       const mine = e.a === me.id || e.b === me.id || e.a === obs.id || e.b === obs.id;
       const global = e.k === Fx.Supply || e.k === Fx.Destroy;

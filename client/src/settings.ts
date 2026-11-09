@@ -7,6 +7,8 @@ export interface Settings {
   touchMode: 'auto' | 'on' | 'off';
   /** 조준 방식: 자동(마우스를 안 쓰면 키보드 자동 조준) / 마우스 / 키보드 자동 조준 */
   aimMode: 'auto' | 'mouse' | 'keyboard';
+  /** 키보드 키로 쓴 공격/스킬은 가장 가까운 적에게 자동 조준 */
+  kbSkillAuto: boolean;
   /** 네온 빛 강도 0.2 ~ 1 */
   neon: number;
 }
@@ -60,7 +62,7 @@ export function guessQuality(): Quality {
 }
 
 export const settings: Settings = {
-  quality: guessQuality(), master: 0.8, music: 0.5, sfx: 0.8, smartCast: true, shake: true, dmgNumbers: true, chat: true, keys: { ...DEFAULT_KEYS }, touchMode: 'auto', aimMode: 'auto', neon: 0.55,
+  quality: guessQuality(), master: 0.8, music: 0.5, sfx: 0.8, smartCast: true, shake: true, dmgNumbers: true, chat: true, keys: { ...DEFAULT_KEYS }, touchMode: 'auto', aimMode: 'auto', neon: 0.55, kbSkillAuto: true,
 };
 
 export function storageGet(key: string): string | null {

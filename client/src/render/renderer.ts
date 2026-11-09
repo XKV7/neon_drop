@@ -129,9 +129,18 @@ export class Renderer3D {
     this.resize();
   }
 
+  /** 품질 설정의 기본 해상도 배율 */
+  private basePR = 1;
+  /** 자동 해상도 조절 배율 (0.55 ~ 1): 프레임이 떨어지면 낮추고 여유가 생기면 되돌린다 */
+  resScale = 1;
+  private ftAvg = 16.7;
+  private adaptTimer = 0;
+
   applyQuality(q: Quality) {
     const dpr = window.devicePixelRatio || 1;
-    this.renderer.setPixelRatio(q === 'low' ? Math.min(dpr, 1) * 0.75 : q === 'mid' ? Math.min(dpr, 1.25) : Math.min(dpr, 2));
+    this.basePR = q === 'low' ? Math.min(dpr, 1) * 0.75 : q === 'mid' ? Math.min(dpr, 1.25) : Math.min(dpr, 2);
+    this.resScale = 1;
+    this.renderer.setPixelRatio(this.basePR);
     this.post.setQuality(q);
     this.resize();
   }
@@ -159,7 +168,27 @@ export class Renderer3D {
     return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight, vis: v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2 };
   }
 
+  /** 프레임 시간을 보고 렌더 해상도를 자동 조절 (렉 완화) */
+  private adapt(dt: number) {
+    const ms = dt * 1000;
+    if (ms <= 0 || ms > 250 || document.hidden) return; // 탭 전환 등 비정상 프레임 무시
+    this.ftAvg += (ms - this.ftAvg) * 0.05;
+    this.adaptTimer += ms;
+    if (this.adaptTimer < 1500) return;
+    let next = this.resScale;
+    if (this.ftAvg > 24 && this.resScale > 0.55) next = Math.max(0.55, this.resScale - 0.1);      // 약 42fps 미만
+    else if (this.ftAvg < 18 && this.resScale < 1) next = Math.min(1, this.resScale + 0.05);      // 약 55fps 이상 유지
+    if (next !== this.resScale) {
+      const up = next > this.resScale;
+      this.resScale = next;
+      this.renderer.setPixelRatio(this.basePR * next);
+      this.resize();
+      this.adaptTimer = up ? -6000 : 0; // 올릴 때는 더 천천히 (오르내림 반복 방지)
+    } else this.adaptTimer = 0;
+  }
+
   frame(dt: number) {
+    this.adapt(dt);
     this.time += dt;
     G.uTime.value = this.time;
     this.frames++; this.fpsT += dt;

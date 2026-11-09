@@ -84,6 +84,7 @@ export class Input {
       return;
     }
     const slotMap: Record<string, number> = { s1: 1, s2: 2, s3: 3, ult: 4 };
+    if (!code.startsWith('Mouse') && (a === 'basic' || a in slotMap)) this.kbPress = { slot: a === 'basic' ? 0 : slotMap[a], until: performance.now() + 200 };
     if (a in slotMap) {
       const slot = slotMap[a];
       if (!settings.smartCast && !this.keyboardAim && !this.isChargeSlot(slot)) {
@@ -98,6 +99,20 @@ export class Input {
   }
 
   isChargeSlot: (slot: number) => boolean = () => false;
+
+  /** 마지막으로 키보드 키(마우스 버튼 아님)로 누른 공격/스킬 */
+  private kbPress: { slot: number; until: number } | null = null;
+
+  /** 키보드 키로 쓰는 중인 공격/스킬 슬롯 (누르고 있는 동안 + 누른 직후 잠깐), 없으면 -1 */
+  kbSlot(): number {
+    const slots: [string, number][] = [['ult', 4], ['s3', 3], ['s2', 2], ['s1', 1], ['basic', 0]];
+    for (const [a, slot] of slots) {
+      const codes = Object.entries(settings.keys).filter(([k]) => (KEY_ALIAS[k] ?? k) === a).map(([, c]) => c);
+      if (codes.some(c => c && !c.startsWith('Mouse') && this.down.has(c))) return slot;
+    }
+    if (this.kbPress && performance.now() < this.kbPress.until) return this.kbPress.slot;
+    return -1;
+  }
 
   isDown(action: string) {
     if (this.down.has(settings.keys[action])) return true;

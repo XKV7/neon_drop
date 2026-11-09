@@ -91,9 +91,11 @@ export class MatchRunner {
     const loop = () => {
       const now = performance.now();
       let n = 0;
+      // 밀린 틱 수 (최대 4). 따라잡는 동안에는 마지막 틱에만 스냅샷을 보낸다
+      const due = Math.min(4, Math.floor((now - this.nextAt) / TICK_MS) + 1);
       while (now >= this.nextAt && n < 4) {
         const t0 = performance.now();
-        this.host.step();
+        this.host.step(n === due - 1 || n === 3);
         this.tickCost = this.tickCost * 0.95 + (performance.now() - t0) * 0.05;
         this.nextAt += TICK_MS; n++;
       }

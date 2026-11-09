@@ -403,7 +403,7 @@ export class Hud {
     if (this.showDebug) {
       this.debug.classList.remove('hidden');
       this.r3.world && (this.r3.world.debugHitboxes = true);
-      this.debug.textContent = `FPS      ${this.r3.fps.toFixed(0)}\n핑       ${g.ping.toFixed(0)} ms\n서버 틱  ${g.newestTick} (렌더 ${g.renderTick.toFixed(1)})\n지터     ${g.jitter.toFixed(1)} 틱\n보정 횟수 ${g.corrections}\n패킷     ${g.lastSnapBytes} B (${(g.bytesPerSec / 1024).toFixed(1)} KB/s)\n엔티티   ${g.view.size}\n히트박스 표시 중`;
+      this.debug.textContent = `FPS      ${this.r3.fps.toFixed(0)}\n핑       ${g.ping.toFixed(0)} ms\n서버 틱  ${g.newestTick} (렌더 ${g.renderTick.toFixed(1)})\n지터     ${g.jitter.toFixed(1)} 틱 (보간 ${(g.delay * 33.3).toFixed(0)} ms)\n해상도   ${Math.round(this.r3.resScale * 100)}%\n보정 횟수 ${g.corrections}\n패킷     ${g.lastSnapBytes} B (${(g.bytesPerSec / 1024).toFixed(1)} KB/s)\n엔티티   ${g.view.size}\n히트박스 표시 중`;
     } else { this.debug.classList.add('hidden'); if (this.r3.world) this.r3.world.debugHitboxes = false; }
   }
 

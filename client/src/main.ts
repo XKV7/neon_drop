@@ -385,10 +385,9 @@ class App {
 
   /** 키 설정이 바뀌면 열려 있는 화면(설정, 게임 중 오버레이, HUD)을 갱신 */
   private refreshKeyUi() {
-    const ov = this.ui.querySelector('.overlay.keys .keybinds');
-    if (ov) ov.innerHTML = this.keybindHtml();
+    // 키 목록만 제자리에서 갱신 (화면 전체를 다시 그리면 스크롤이 맨 위로 튄다)
+    this.ui.querySelectorAll('.keybinds').forEach(k => { k.innerHTML = this.keybindHtml(); });
     this.match?.hud.refreshKeys();
-    if (this.screen === 'settings') this.render();
   }
 
   private openKeysOverlay() {
@@ -426,6 +425,26 @@ class App {
     const mv = this.input.moveVector();
     if (Math.hypot(mv.x, mv.y) > 0.2) { g.aimX = me.x + mv.x * 5; g.aimY = me.y + mv.y * 5; }
     else if (Math.hypot(g.aimX - me.x, g.aimY - me.y) < 0.5 || Math.hypot(g.aimX - me.x, g.aimY - me.y) > 20) { g.aimX = me.x + Math.cos(me.a) * 5; g.aimY = me.y + Math.sin(me.a) * 5; }
+  }
+
+  /**
+   * 키보드 키로 쓴 공격/스킬: 사거리 안에서 가장 가까운 적에게 자동 조준.
+   * 이동기(스킬 3)는 이동 중이면 이동 방향으로. 대상이 없으면 원래 조준(마우스 등) 유지.
+   */
+  private keySkillAim(g: ClientGame) {
+    if (!settings.kbSkillAuto || this.input.aiming >= 0) return;
+    const slot = this.input.kbSlot();
+    if (slot < 0) return;
+    const me = g.view.get(g.you);
+    const def = g.mySkills()[slot];
+    if (!me || !def) return;
+    if (slot === 3) {
+      const mv = this.input.moveVector();
+      if (Math.hypot(mv.x, mv.y) > 0.2) { const d = Math.max(3, def.range); g.aimX = me.x + mv.x * d; g.aimY = me.y + mv.y * d; }
+      return;
+    }
+    const tgt = this.autoTarget(g, Math.max(slot === 0 ? 9 : 6, def.range + 2));
+    if (tgt) { g.aimX = tgt.x; g.aimY = tgt.y; }
   }
 
   /** 터치 조작 켜기/끄기 (설정 + 기기 판단) */
@@ -513,6 +532,7 @@ class App {
         if (this.touch?.enabled) this.touchAim(g);
         else if (kbAim) this.keyboardAimAt(g);
         else { const p = this.r3.screenToGround(this.input.mouseX, this.input.mouseY); g.aimX = p.x; g.aimY = p.y; }
+        if (!this.touch?.enabled && !droppingNow) this.keySkillAim(g);
       }
       m.hud.keyboardAim = kbAim;
       const wheel = this.input.takeWheel();
@@ -563,6 +583,11 @@ class App {
 
   render() {
     if (this.screen === 'game') return;
+    // 같은 화면을 다시 그릴 때(영웅·탭 변경 등)는 스크롤 위치를 유지 — 휴대폰/태블릿에서 화면이 위로 튀는 문제
+    const old = this.ui.querySelector('.screen') as HTMLElement | null;
+    const same = !!old && old.dataset.screen === this.screen;
+    const keepScroll = same ? old!.scrollTop : 0;
+    const innerScroll = same ? [...old!.querySelectorAll('.sub-panel')].map(p => p.scrollTop) : [];
     this.ui.innerHTML = '';
     const scr = el('div', 'screen');
     switch (this.screen) {
@@ -576,7 +601,10 @@ class App {
       case 'settings': this.renderSettings(scr); break;
       case 'codex': this.renderCodex(scr); break;
     }
+    scr.dataset.screen = this.screen;
     this.ui.appendChild(scr);
+    if (keepScroll) scr.scrollTop = keepScroll;
+    scr.querySelectorAll('.sub-panel').forEach((p, i) => { if (innerScroll[i]) p.scrollTop = innerScroll[i]; });
   }
 
   private renderTitle(s: HTMLElement) {
@@ -814,6 +842,7 @@ class App {
         <span>네온 빛 강도</span><input type="range" class="slider" min="0.2" max="1" step="0.05" value="${settings.neon}" data-neon>
         <span>조준 방식</span><div class="row" style="flex-wrap:wrap">${(['auto', 'mouse', 'keyboard'] as const).map(x => `<button class="tab ${settings.aimMode === x ? 'on' : ''}" data-aimmode="${x}">${{ auto: '자동', mouse: '마우스', keyboard: '키보드 자동 조준' }[x]}</button>`).join('')}</div>
         <span></span><span class="dim" style="font-size:12px">자동: 마우스를 쓰면 마우스로 조준하고, 마우스 없이 키보드만 쓰면 가장 가까운 적을 자동으로 조준합니다.</span>
+        <span>키보드 스킬 조준</span><label class="row"><input type="checkbox" data-toggle="kbSkillAuto" ${settings.kbSkillAuto ? 'checked' : ''}> 키보드 키로 쓴 공격·스킬은 사거리 안의 가장 가까운 적에게 자동 조준 (이동기는 이동 방향)</label>
         <span>터치 조작</span><div class="row" style="flex-wrap:wrap">${(['auto', 'on', 'off'] as const).map(x => `<button class="tab ${settings.touchMode === x ? 'on' : ''}" data-touchmode="${x}">${{ auto: '자동', on: '켜기', off: '끄기' }[x]}</button>`).join('')}</div>
         <span>화면 흔들림</span><label class="row"><input type="checkbox" data-toggle="shake" ${settings.shake ? 'checked' : ''}> 사용</label>
         <span>데미지 숫자</span><label class="row"><input type="checkbox" data-toggle="dmgNumbers" ${settings.dmgNumbers ? 'checked' : ''}> 표시</label>

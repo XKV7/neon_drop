@@ -32,6 +32,8 @@ export class ClientGame {
   private offsetInit = false;
   private samples: number[] = [];
   jitter = 0;
+  /** 현재 보간 지연 (틱) */
+  delay = INTERP_BASE;
   renderTick = 0;
 
   // 예측
@@ -160,8 +162,10 @@ export class ClientGame {
     if (Math.abs(this.errX) < 1e-3) this.errX = 0;
     if (Math.abs(this.errY) < 1e-3) this.errY = 0;
     // 렌더 시점
-    const delay = INTERP_BASE + Math.min(3, this.jitter * 0.6);
-    this.renderTick = now / TICK_MS + this.offset - delay;
+    // 지터가 크면 보간 지연을 늘리되(최대 +5틱), 화면이 튀지 않게 천천히 바꾼다
+    const target = INTERP_BASE + Math.min(5, this.jitter * 0.7);
+    this.delay += (target - this.delay) * Math.min(1, dtMs / (target > this.delay ? 150 : 1500));
+    this.renderTick = now / TICK_MS + this.offset - this.delay;
     this.interpolate();
     if (now - this.pingTimer > 1000) {
       this.pingTimer = now;
@@ -243,6 +247,14 @@ export class ClientGame {
         v.a = dqAng(a0[F.A]) + da * f;
       } else if (a0 && a0[F.TYPE] === type) {
         v.x = a0[F.X] / POS_SCALE; v.y = a0[F.Y] / POS_SCALE; v.a = dqAng(a0[F.A]);
+        // 다음 스냅샷이 늦으면(서버·네트워크 지연) 직전 속도로 짧게(최대 4틱) 이어서 움직여 끊김을 줄인다
+        const prevTick = s1 ? -1 : this.prevTickOf(s0.tick);
+        const ap = prevTick >= 0 ? this.store.get(prevTick)?.ents.get(id) : undefined;
+        if (ap && ap[F.TYPE] === type && type === EntType.Hero) {
+          const span = s0.tick - prevTick, ex = Math.min(4, rt - s0.tick);
+          const vx = (a0[F.X] - ap[F.X]) / POS_SCALE / span, vy = (a0[F.Y] - ap[F.Y]) / POS_SCALE / span;
+          if (ex > 0 && span <= 4 && Math.hypot(vx, vy) < 0.6) { v.x += vx * ex; v.y += vy * ex; }
+        }
       } else {
         // 보간 시점에 아직 없는 새 엔티티: 최신값 사용
         v.x = e[F.X] / POS_SCALE; v.y = e[F.Y] / POS_SCALE; v.a = dqAng(e[F.A]);
@@ -254,6 +266,11 @@ export class ClientGame {
       const me = this.view.get(this.you);
       if (me) { const p = this.myRenderPos(); me.x = p.x; me.y = p.y; }
     }
+  }
+
+  private prevTickOf(tick: number): number {
+    const i = this.ticks.indexOf(tick);
+    return i > 0 ? this.ticks[i - 1] : -1;
   }
 
   takeEvents(): SimEvent[] { const e = this.events; this.events = []; return e; }
