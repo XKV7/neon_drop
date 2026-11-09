@@ -337,15 +337,16 @@ class App {
       return true;
     }
     const m = this.match;
-    if (code === 'F3') { if (m) m.hud.showDebug = !m.hud.showDebug; return true; }
+    if (code === settings.keys.debug) { if (m) m.hud.showDebug = !m.hud.showDebug; return true; }
     if (!m || this.screen !== 'game') return false;
     if (m.hud.chatOpen) return false;
     if (code === settings.keys.score) { if (!this.scoreHeld) { this.scoreHeld = true; m.hud.showScoreboard(true); } return true; }
     if (code === settings.keys.chat) { m.hud.openChat(); return true; }
     if (code === settings.keys.wheel && !e.repeat) { m.hud.toggleWheel(true); return true; }
     if (code === 'Escape') { const ko = this.ui.querySelector('.overlay.keys'); if (ko) ko.remove(); else if (this.input.aiming >= 0) this.input.aiming = -1; else this.toggleEscMenu(); return true; }
-    if (m.game.selfState === 3 && (code === 'ArrowLeft' || code === 'ArrowRight')) { this.cycleSpectate(code === 'ArrowLeft' ? -1 : 1); return true; }
-    if (m.hud.offer && (code === 'Digit1' || code === 'Digit2' || code === 'Digit3')) { m.transport.send({ type: 'pickAug', idx: Number(code.slice(5)) - 1 }); audio.play('ui'); return true; }
+    if (m.game.selfState === 3 && (code === settings.keys.specPrev || code === settings.keys.specNext)) { this.cycleSpectate(code === settings.keys.specPrev ? -1 : 1); return true; }
+    const augIdx = ['aug1', 'aug2', 'aug3'].findIndex(a => settings.keys[a] === code);
+    if (m.hud.offer && augIdx >= 0) { m.transport.send({ type: 'pickAug', idx: augIdx }); audio.play('ui'); return true; }
     return false;
   }
 
@@ -366,7 +367,7 @@ class App {
       const code = settings.keys[a.id];
       const changed = code !== DEFAULT_KEYS[a.id];
       return `<span>${a.label}</span><div class="row" style="gap:6px"><button class="btn small ${this.rebinding === a.id ? 'pink' : 'ghost'} keybind" data-rebind="${a.id}">${this.rebinding === a.id ? '키 또는 마우스 버튼…' : esc(keyLabel(code))}</button>${changed ? `<button class="btn small ghost" data-rebind-default="${a.id}" title="기본값: ${esc(keyLabel(DEFAULT_KEYS[a.id]))}">기본값</button>` : ''}</div>`;
-    }).join('')}</div></div>`).join('') + `</div><p class="dim" style="font-size:12px;margin-top:10px">버튼을 누른 뒤 원하는 키나 마우스 버튼(좌/우/휠/4/5)을 누르세요. Esc로 취소합니다. 이미 쓰이는 키를 고르면 두 기능의 키가 서로 바뀝니다. Esc·F3·1~3(증강 선택)은 고정 키입니다.</p>`;
+    }).join('')}</div></div>`).join('') + `</div><p class="dim" style="font-size:12px;margin-top:10px">버튼을 누른 뒤 원하는 키나 마우스 버튼(좌/우/휠/4/5)을 누르세요. Esc로 취소합니다. 이미 쓰이는 키를 고르면 두 기능의 키가 서로 바뀝니다. Esc(메뉴/취소)만 고정 키이고 나머지는 모두 바꿀 수 있습니다.</p>`;
   }
 
   private finishRebind(code: string) {
@@ -632,7 +633,7 @@ class App {
           <div class="row" style="margin-top:10px"><input class="field grow" id="roomCode" maxlength="4" placeholder="코드 4자리" inputmode="numeric"><button class="btn" data-act="join-room">참가</button></div>
         </div>
         <div class="panel profile-card" style="font-size:13px;line-height:1.7">
-          ${document.body.classList.contains('coarse') ? '<b>터치 조작</b><br><span class="dim">왼쪽 아무 곳: 이동 조이스틱 · 오른쪽 버튼: 공격/스킬<br>버튼을 탭하면 가까운 적에게 자동 조준, 끌면 직접 조준 후 떼면 시전 (✕로 끌어 취소)<br>빈 곳 탭: 그 방향으로 공격 · ↻ 구르기 · F 상호작용</span><br><br>' : ''}<b>조작</b> <button class="btn small ghost" data-act="settings" style="float:right;padding:2px 8px">변경</button><br><span class="dim">${['up', 'left', 'down', 'right'].map(a => esc(keyLabel(settings.keys[a]))).join('')} 이동 · 마우스 조준 · ${esc(keyLabel(settings.keys.basic))} 기본 공격<br>${['s1', 's2', 's3', 'ult'].map(a => esc(keyLabel(settings.keys[a]))).join('/')} 스킬 · ${esc(keyLabel(settings.keys.dodge))} 구르기 · ${esc(keyLabel(settings.keys.interact))} 상호작용<br>${esc(keyLabel(settings.keys.score))} 점수판 · ${esc(keyLabel(settings.keys.chat))} 채팅 · ${esc(keyLabel(settings.keys.wheel))} 퀵 채팅 · F3 디버그<br><b style="color:var(--text)">마우스 없이</b>: ${esc(keyLabel(settings.keys.basic2))} 기본 공격 · ${esc(keyLabel(settings.keys.s1b))} 스킬 1 · 가장 가까운 적 자동 조준 · 메뉴는 Tab/Enter</span>
+          ${document.body.classList.contains('coarse') ? '<b>터치 조작</b><br><span class="dim">왼쪽 아무 곳: 이동 조이스틱 · 오른쪽 버튼: 공격/스킬<br>버튼을 탭하면 가까운 적에게 자동 조준, 끌면 직접 조준 후 떼면 시전 (✕로 끌어 취소)<br>빈 곳 탭: 그 방향으로 공격 · ↻ 구르기 · F 상호작용</span><br><br>' : ''}<b>조작</b> <button class="btn small ghost" data-act="settings" style="float:right;padding:2px 8px">변경</button><br><span class="dim">${['up', 'left', 'down', 'right'].map(a => esc(keyLabel(settings.keys[a]))).join('')} 이동 · 마우스 조준 · ${esc(keyLabel(settings.keys.basic))} 기본 공격<br>${['s1', 's2', 's3', 'ult'].map(a => esc(keyLabel(settings.keys[a]))).join('/')} 스킬 · ${esc(keyLabel(settings.keys.dodge))} 구르기 · ${esc(keyLabel(settings.keys.interact))} 상호작용<br>${esc(keyLabel(settings.keys.score))} 점수판 · ${esc(keyLabel(settings.keys.chat))} 채팅 · ${esc(keyLabel(settings.keys.wheel))} 퀵 채팅 · ${['aug1', 'aug2', 'aug3'].map(a => esc(keyLabel(settings.keys[a]))).join('/')} 증강 선택 · ${esc(keyLabel(settings.keys.debug))} 디버그<br><b style="color:var(--text)">마우스 없이</b>: ${esc(keyLabel(settings.keys.basic2))} 기본 공격 · ${esc(keyLabel(settings.keys.s1b))} 스킬 1 · 가장 가까운 적 자동 조준 · 메뉴는 Tab/Enter</span>
         </div>
       </div>`;
   }

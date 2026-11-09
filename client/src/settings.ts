@@ -17,10 +17,13 @@ export const ACTIONS: { id: string; label: string; group: string }[] = [
   { id: 'basic', label: '기본 공격 / 조준 확인', group: '전투' }, { id: 'basic2', label: '기본 공격 (키보드)', group: '전투' },
   { id: 's1', label: '스킬 1', group: '전투' }, { id: 's1b', label: '스킬 1 (키보드)', group: '전투' }, { id: 's2', label: '스킬 2', group: '전투' }, { id: 's3', label: '스킬 3 (이동기)', group: '전투' }, { id: 'ult', label: '궁극기', group: '전투' },
   { id: 'interact', label: '상호작용', group: '기타' }, { id: 'score', label: '점수판 (누르고 있기)', group: '기타' }, { id: 'chat', label: '채팅', group: '기타' }, { id: 'wheel', label: '퀵 채팅/감정 표현 (누르고 있기)', group: '기타' },
+  { id: 'aug1', label: '증강 선택 1', group: '증강·관전' }, { id: 'aug2', label: '증강 선택 2', group: '증강·관전' }, { id: 'aug3', label: '증강 선택 3', group: '증강·관전' },
+  { id: 'specPrev', label: '관전: 이전 플레이어', group: '증강·관전' }, { id: 'specNext', label: '관전: 다음 플레이어', group: '증강·관전' },
+  { id: 'debug', label: '디버그 정보', group: '증강·관전' },
 ];
 
 /** 다른 기능에 고정된 키 (재설정 불가) */
-export const RESERVED_KEYS: Record<string, string> = { Escape: '메뉴/취소', F3: '디버그', Digit1: '증강 선택 1', Digit2: '증강 선택 2', Digit3: '증강 선택 3' };
+export const RESERVED_KEYS: Record<string, string> = { Escape: '메뉴/취소' };
 
 /**
  * 키 지정. 이미 다른 기능에 쓰이는 키면 두 기능의 키를 서로 바꾼다.
@@ -46,6 +49,7 @@ export function actionLabel(id: string) { return ACTIONS.find(a => a.id === id)?
 export const DEFAULT_KEYS: Record<string, string> = {
   up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', basic: 'Mouse0', basic2: 'KeyJ', s1: 'Mouse2', s1b: 'KeyK', s2: 'KeyQ', s3: 'KeyE', ult: 'KeyR',
   dodge: 'Space', interact: 'KeyF', score: 'Tab', chat: 'Enter', wheel: 'KeyT',
+  aug1: 'Digit1', aug2: 'Digit2', aug3: 'Digit3', specPrev: 'ArrowLeft', specNext: 'ArrowRight', debug: 'F3',
 };
 
 export function guessQuality(): Quality {
@@ -79,8 +83,11 @@ export function loadSettings() {
     const used = new Set<string>();
     for (const a of Object.keys(DEFAULT_KEYS)) {
       const c = settings.keys[a];
-      if (typeof c !== 'string' || !c || used.has(c) || RESERVED_KEYS[c]) settings.keys[a] = DEFAULT_KEYS[a];
-      used.add(settings.keys[a]);
+      if (typeof c !== 'string' || used.has(c) || RESERVED_KEYS[c]) {
+        // 기본 키도 이미 쓰이고 있으면(예: 새로 생긴 기능의 기본 키를 사용자가 다른 곳에 지정함) 비워 둔다
+        settings.keys[a] = used.has(DEFAULT_KEYS[a]) ? '' : DEFAULT_KEYS[a];
+      }
+      if (settings.keys[a]) used.add(settings.keys[a]);
     }
     for (const a of Object.keys(settings.keys)) if (!(a in DEFAULT_KEYS)) delete settings.keys[a];
   } catch { /* 손상된 설정 무시 */ }
@@ -89,6 +96,7 @@ export function loadSettings() {
 export function saveSettings() { storageSet('neon.settings', JSON.stringify(settings)); }
 
 export function keyLabel(code: string): string {
+  if (!code) return '없음';
   const mouse: Record<string, string> = { Mouse0: '좌클릭', Mouse1: '휠클릭', Mouse2: '우클릭', Mouse3: '마우스4', Mouse4: '마우스5' };
   if (mouse[code]) return mouse[code];
   if (code.startsWith('Key')) return code.slice(3);
@@ -98,6 +106,7 @@ export function keyLabel(code: string): string {
     Space: 'Space', ShiftLeft: '왼Shift', ShiftRight: '오른Shift', ControlLeft: '왼Ctrl', ControlRight: '오른Ctrl', AltLeft: '왼Alt', AltRight: '오른Alt',
     Tab: 'Tab', Enter: 'Enter', Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'",
     Comma: ',', Period: '.', Slash: '/', CapsLock: 'CapsLock', Backspace: 'Backspace', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+    F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6', F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
     Insert: 'Insert', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PgUp', PageDown: 'PgDn',
   };
   return map[code] ?? code;

@@ -194,11 +194,11 @@ export class Hud {
     if (!o) return;
     const best = o.options.map(id => AUGMENT_BY_ID[id].tier).includes('prism') ? 'prism' : o.options.map(id => AUGMENT_BY_ID[id].tier).includes('gold') ? 'gold' : 'silver';
     audio.play('aug_' + best);
-    const title = el('div', 'aug-title', o.source === 'supply' ? '기업 보급품 — 프리즘 증강 선택!' : `레벨 업! 증강 선택 ${o.queue > 1 ? `(대기 ${o.queue - 1})` : ''} — 1/2/3 키`);
+    const title = el('div', 'aug-title', o.source === 'supply' ? '기업 보급품 — 프리즘 증강 선택!' : `레벨 업! 증강 선택 ${o.queue > 1 ? `(대기 ${o.queue - 1})` : ''} — ${['aug1', 'aug2', 'aug3'].map(a => keyLabel(settings.keys[a])).join('/')} 키`);
     const wrap = el('div', 'aug-cards');
     o.options.forEach((id, i) => {
       const a = AUGMENT_BY_ID[id];
-      const c = el('div', 'aug-card ' + a.tier, `<div class="hk">${i + 1}</div><div class="tr" style="color:var(--${a.tier})">${TIER_NAMES[a.tier]}${a.hero ? ' · 전용' : ''}</div><div class="ic">${a.icon}</div><div class="nm">${esc(a.name)}</div><div class="ds">${esc(a.desc)}</div>`);
+      const c = el('div', 'aug-card ' + a.tier, `<div class="hk">${esc(keyLabel(settings.keys['aug' + (i + 1)]))}</div><div class="tr" style="color:var(--${a.tier})">${TIER_NAMES[a.tier]}${a.hero ? ' · 전용' : ''}</div><div class="ic">${a.icon}</div><div class="nm">${esc(a.name)}</div><div class="ds">${esc(a.desc)}</div>`);
       c.tabIndex = 0;
       c.addEventListener('click', () => this.cb.pickAug(i));
       c.addEventListener('mouseenter', () => audio.play('uiHover'));
@@ -392,10 +392,10 @@ export class Hud {
     if (dead && g.you === 0) {
       const target = g.rosterOf(self.viewId);
       const q = this.queueInfo;
-      this.setHtml(this.specBox, `<div><div class="dim" style="font-size:12px">${q ? `대기 ${q.position}번째 · 진행 중 ${q.active}/${q.max}판 · 자리가 나면 자동으로 시작` : '대기 중 · 관전'}</div><b class="spec-name">관전: ${esc(target?.name ?? '')}</b></div><button class="btn small ghost" data-a="prev">◀</button><button class="btn small ghost" data-a="next">▶</button><button class="btn small pink" data-a="leaveq">대기열 나가기</button>`);
+      this.setHtml(this.specBox, `<div><div class="dim" style="font-size:12px">${q ? `대기 ${q.position}번째 · 진행 중 ${q.active}/${q.max}판 · 자리가 나면 자동으로 시작` : '대기 중 · 관전'}</div><b class="spec-name">관전: ${esc(target?.name ?? '')}</b></div><button class="btn small ghost" data-a="prev" title="${esc(keyLabel(settings.keys.specPrev))}">◀</button><button class="btn small ghost" data-a="next" title="${esc(keyLabel(settings.keys.specNext))}">▶</button><button class="btn small pink" data-a="leaveq">대기열 나가기</button>`);
     } else if (dead) {
       const target = g.rosterOf(self.viewId);
-      this.setHtml(this.specBox, `<div><div class="dim" style="font-size:12px">${this.eliminatedInfo ? `#${this.eliminatedInfo.placement} 탈락 · ` : ''}관전 중</div><b class="spec-name">${esc(target?.name ?? '')}</b></div><button class="btn small ghost" data-a="prev">◀</button><button class="btn small ghost" data-a="next">▶</button><button class="btn small pink" data-a="res">결과 화면</button>`);
+      this.setHtml(this.specBox, `<div><div class="dim" style="font-size:12px">${this.eliminatedInfo ? `#${this.eliminatedInfo.placement} 탈락 · ` : ''}관전 중</div><b class="spec-name">${esc(target?.name ?? '')}</b></div><button class="btn small ghost" data-a="prev" title="${esc(keyLabel(settings.keys.specPrev))}">◀</button><button class="btn small ghost" data-a="next" title="${esc(keyLabel(settings.keys.specNext))}">▶</button><button class="btn small pink" data-a="res">결과 화면</button>`);
     }
 
     this.updateOverheads();

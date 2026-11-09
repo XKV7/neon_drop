@@ -47,7 +47,7 @@ export class Input {
     if (this.onKey(e.code, e)) { e.preventDefault(); return; }
     if (!this.enabled) return;
     // 게임 키로 쓰이는 키는 브라우저 기본 동작(스크롤, 포커스 이동 등)을 막는다
-    if (e.code === 'F3' || this.actionOf(e.code)) { e.preventDefault(); this.keyAt = performance.now(); }
+    if (this.actionOf(e.code)) { e.preventDefault(); this.keyAt = performance.now(); }
     if (e.repeat) return;
     this.down.add(e.code);
     this.press(e.code);
