@@ -12,7 +12,7 @@ export interface VisEnt {
 
 interface Stored { tick: number; ents: Map<number, NetEnt>; match: MatchBlock; self: SelfBlock }
 
-const INTERP_BASE = 3; // 100ms
+const INTERP_BASE = 4; // 133ms (서버 스냅샷 15Hz 기준 여유 포함)
 
 export class ClientGame {
   map: MapData;

@@ -382,7 +382,8 @@ export class Hud {
     this.dropHint.classList.toggle('hidden', !dropping);
     if (dropping) {
       const touch = document.body.classList.contains('touch');
-      const how = touch ? '원하는 위치를 탭하면 바로 낙하' : this.keyboardAim ? `${keyLabel(settings.keys.up)}${keyLabel(settings.keys.left)}${keyLabel(settings.keys.down)}${keyLabel(settings.keys.right)}로 표시를 옮기고 ${keyLabel(settings.keys.basic2)} 또는 ${keyLabel(settings.keys.dodge)}로 낙하` : '원하는 위치를 클릭하면 바로 낙하 (키보드: WASD로 이동 후 J/Space)';
+      const mv = `${keyLabel(settings.keys.up)}${keyLabel(settings.keys.left)}${keyLabel(settings.keys.down)}${keyLabel(settings.keys.right)}`;
+      const how = touch ? `원하는 위치를 탭하면 바로 낙하 (키보드: ${mv}로 표시 이동)` : `${mv}로 표시를 옮기고 ${keyLabel(settings.keys.basic2)} 또는 ${keyLabel(settings.keys.dodge)}로 낙하 · 마우스는 클릭한 곳으로 낙하`;
       this.setHtml(this.dropHint, `<div class="big glow-cyan">낙하 지점을 고르세요</div><div class="dim">수송 드론 출발까지 ${Math.max(0, Math.ceil(DROP_PHASE_SEC - t))}초 · ${how}</div>`);
     }
 

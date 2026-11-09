@@ -51,6 +51,9 @@ class App {
   private stickyAim: { x: number; y: number; until: number } | null = null;
   /** 키보드로 고르는 낙하 지점 */
   private dropCursor = { x: 0, y: 0 };
+  /** 이번 낙하에서 키보드로 표시를 옮겼는지 / 마지막으로 반영한 마우스 움직임 시각 */
+  private dropKbUsed = false;
+  private dropMouseSeen = 0;
   private soloLevel = 1;
   readonly offline = !!import.meta.env.VITE_OFFLINE;
   private scoreHeld = false;
@@ -246,7 +249,7 @@ class App {
       practice: w => local?.cheat(w),
     });
     this.match = { transport, game, world, hud, local, results: null, augments: [], spectator };
-    this.dropCursor = { x: 0, y: 0 };
+    this.dropCursor = { x: 0, y: 0 }; this.dropKbUsed = false; this.dropMouseSeen = 0;
     this.touch = new TouchControls(this.ui, {
       menu: () => this.toggleEscMenu(),
       score: () => hud.showScoreboard(!hud.scoreboardOpen),
@@ -519,12 +522,26 @@ class App {
       this.input.keyboardAim = kbAim;
       const droppingNow = g.match?.phase === 0 && g.selfState === 0 && g.mode !== 'practice';
       this.touch?.setDropMode(droppingNow);
-      if (droppingNow && kbAim && !this.touch?.enabled) {
-        // 키보드 낙하: WASD로 커서 이동, J 또는 Space로 낙하
-        const mv = this.input.moveVector();
-        this.dropCursor.x += mv.x * 26 * dt; this.dropCursor.y += mv.y * 26 * dt;
+      const kbMove = this.input.keyMoveVector();
+      if (droppingNow && (Math.hypot(kbMove.x, kbMove.y) > 0.1 || !this.touch?.enabled || this.dropKbUsed)) {
+        // 낙하 지점: WASD로 표시를 옮기고(마우스·터치 여부와 상관없이) J/Space/클릭으로 낙하.
+        // 마우스를 움직이면 표시가 마우스 위치로 따라간다.
+        if (Math.hypot(kbMove.x, kbMove.y) > 0.1) {
+          this.dropKbUsed = true;
+          this.dropCursor.x += kbMove.x * 34 * dt; this.dropCursor.y += kbMove.y * 34 * dt;
+        } else if (!this.touch?.enabled && !kbAim && this.input.mouseAt > this.dropMouseSeen) {
+          this.dropMouseSeen = this.input.mouseAt;
+          const p = this.r3.screenToGround(this.input.mouseX, this.input.mouseY);
+          this.dropCursor.x = p.x; this.dropCursor.y = p.y;
+        }
+        if (this.touch?.enabled && this.touch.tap) {
+          // 터치 탭은 그 위치로 바로 낙하
+          const p = this.r3.screenToGround(this.touch.tap.x, this.touch.tap.y);
+          this.dropCursor.x = p.x; this.dropCursor.y = p.y;
+        }
         const dl = Math.hypot(this.dropCursor.x, this.dropCursor.y);
         if (dl > 38) { this.dropCursor.x *= 38 / dl; this.dropCursor.y *= 38 / dl; }
+        if (this.touch?.enabled && this.touch.tap) this.touchAim(g); // 탭 → 기본 공격(낙하) 래치
         g.aimX = this.dropCursor.x; g.aimY = this.dropCursor.y;
         m.world.setDropMarker(this.dropCursor.x, this.dropCursor.y);
       } else {

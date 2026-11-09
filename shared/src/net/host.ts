@@ -29,7 +29,7 @@ export interface HostClient {
 }
 
 const MAX_QUEUE = 6;
-const MAX_INPUTS_PER_SEC = 40;
+const MAX_INPUTS_PER_SEC = 60;
 
 export class MatchHost {
   match: Match;
@@ -109,11 +109,22 @@ export class MatchHost {
         const { ackTick, inputs } = decodeInputs(r);
         if (ackTick <= this.match.w.tick && ackTick > c.ackTick) c.ackTick = ackTick;
         const now = this.match.w.tick;
-        if (now - c.rateWindow >= TICK_RATE) { c.rateWindow = now; c.rateCount = 0; }
+        // 속도 제한은 실제 시간 기준 — 서버가 CPU 부족으로 느려져도(틱이 덜 진행돼도) 정상 입력을 버리지 않는다
+        const real = performance.now();
+        if (real - c.rateWindow >= 1000) { c.rateWindow = real; c.rateCount = 0; }
         for (const inp of inputs) {
           if (inp.seq <= c.recvSeq) continue;
           if (!this.validInput(inp)) { c.rejected++; continue; }
-          if (++c.rateCount > MAX_INPUTS_PER_SEC) { c.rejected++; continue; }
+          if (++c.rateCount > MAX_INPUTS_PER_SEC) {
+            // 초과분의 이동은 버리되 버튼 누름(스킬·낙하)은 다음 입력에 합쳐 잃어버리지 않는다
+            c.rejected++; c.recvSeq = inp.seq;
+            if (inp.pressed) {
+              const last = c.queue[c.queue.length - 1];
+              if (last) last.pressed |= inp.pressed;
+              else { inp.viewTick = Math.min(inp.viewTick, now); c.queue.push(inp); }
+            }
+            continue;
+          }
           c.recvSeq = inp.seq;
           inp.viewTick = Math.min(inp.viewTick, now);
           c.queue.push(inp);

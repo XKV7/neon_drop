@@ -9,6 +9,8 @@ export interface RunnerHooks {
 }
 
 /** 매치 하나의 독립 루프 (30Hz) */
+const SNAPSHOT_EVERY = Math.max(1, Math.min(3, Number(process.env.SNAPSHOT_EVERY ?? 2) || 2));
+
 export class MatchRunner {
   id: string;
   match: Match;
@@ -95,7 +97,9 @@ export class MatchRunner {
       const due = Math.min(4, Math.floor((now - this.nextAt) / TICK_MS) + 1);
       while (now >= this.nextAt && n < 4) {
         const t0 = performance.now();
-        this.host.step(n === due - 1 || n === 3);
+        // 스냅샷은 SNAPSHOT_EVERY틱마다(기본 2 = 15Hz) — 무료 서버(CPU 0.1개)의 부담을 절반으로
+        const last = n === due - 1 || n === 3;
+        this.host.step(last && this.match.w.tick % SNAPSHOT_EVERY === 0);
         this.tickCost = this.tickCost * 0.95 + (performance.now() - t0) * 0.05;
         this.nextAt += TICK_MS; n++;
       }

@@ -87,7 +87,8 @@ export class Input {
     if (!code.startsWith('Mouse') && (a === 'basic' || a in slotMap)) this.kbPress = { slot: a === 'basic' ? 0 : slotMap[a], until: performance.now() + 200 };
     if (a in slotMap) {
       const slot = slotMap[a];
-      if (!settings.smartCast && !this.keyboardAim && !this.isChargeSlot(slot)) {
+      // 키보드 키로 누른 스킬은 항상 즉발 (범위 확인 단계는 마우스 버튼에만)
+      if (!settings.smartCast && !this.keyboardAim && code.startsWith('Mouse') && !this.isChargeSlot(slot)) {
         if (this.aiming === slot) { this.latched |= [0, Btn.S1, Btn.S2, Btn.S3, Btn.Ult][slot]; this.aiming = -1; }
         else this.aiming = slot;
         return;
@@ -123,6 +124,12 @@ export class Input {
   moveVector(): { x: number; y: number } {
     if (!this.enabled) return { x: 0, y: 0 };
     if (this.touch?.enabled && this.touch.joyActive) return { ...this.touch.move };
+    return this.keyMoveVector();
+  }
+
+  /** 키보드 이동 키만 본 방향 (터치 조이스틱 제외) */
+  keyMoveVector(): { x: number; y: number } {
+    if (!this.enabled) return { x: 0, y: 0 };
     let x = 0, y = 0;
     if (this.isDown('left')) x -= 1;
     if (this.isDown('right')) x += 1;
